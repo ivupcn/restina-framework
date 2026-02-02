@@ -19,7 +19,7 @@ class App
     private Config $config;
     private Cache $cache;
     private Db $db;
-    private string $isDebugMode;
+    private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
     private string $cachePath;
@@ -57,7 +57,6 @@ class App
         if ($this->bootstrapped) {
             return $this;
         }
-
         // 加载应用配置
         $this->loadAppConfiguration();
         // 设置调试模式
@@ -205,7 +204,7 @@ class App
     private function initializePaths(): void
     {
         $this->restinaPath = __DIR__;
-        $this->rootPath = dirname($this->restinaPath);
+        $this->rootPath = dirname(dirname(dirname(dirname($this->restinaPath))));
         $this->appPath = $this->rootPath . DIRECTORY_SEPARATOR . 'app';
         $this->runtimePath = $this->rootPath . DIRECTORY_SEPARATOR . 'runtime';
         $this->viewPath = $this->appPath . DIRECTORY_SEPARATOR . 'views';
