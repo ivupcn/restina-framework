@@ -3,10 +3,10 @@
     "description": "A lightweight PHP framework based on Slim and Eloquent ORM",
     "type": "library",
     "keywords": ["framework", "api", "rest", "slim", "eloquent", "orm"],
-    "license": "MIT",
+    "license": "Apache-2.0",
     "authors": [
         {
-            "name": "ivup",
+            "name": "ivup.cn",
             "email": "ivup@ivup.cn",
             "role": "Developer"
         }
