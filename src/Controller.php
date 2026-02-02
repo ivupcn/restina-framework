@@ -63,6 +63,8 @@ class Controller
         $startTime = microtime(true);
         $routeCount = count($routes);
 
+        $this->addDefaultRouteIfMissing($routes);
+
         foreach ($routes as $route) {
             $this->registerSingleRoute($route);
         }
@@ -70,6 +72,30 @@ class Controller
         if ($this->app->isDebugMode()) {
             $duration = round((microtime(true) - $startTime) * 1000, 2);
             error_log("[PERFORMANCE] Registered {$routeCount} routes in {$duration}ms");
+        }
+    }
+
+    /**
+     * 添加默认路由（当没有根路径路由时）
+     */
+    private function addDefaultRouteIfMissing(array $routes): void
+    {
+        $hasDefaultRoute = false;
+        foreach ($routes as $route) {
+            if ($route['path'] === '/') {
+                $hasDefaultRoute = true;
+                break;
+            }
+        }
+
+        if (!$hasDefaultRoute) {
+            $this->app->getSlimApp()->get('/', function (Request $request, Response $response) {
+                $response->getBody()->write(json_encode([
+                    'error' => 'Tips',
+                    'message' => 'default route missing'
+                ], JSON_UNESCAPED_UNICODE));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(200);
+            });
         }
     }
 

@@ -44,6 +44,14 @@ composer require ivupcn/restina
 composer dump-autoload
 ~~~
 
+使用 Nginx ，修改你的项目对应的配置：
+
+~~~
+location / {
+    try_files $uri /index.php$is_args$args;
+}
+~~~
+
 启动服务
 
 ~~~
