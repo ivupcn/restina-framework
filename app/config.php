@@ -8,7 +8,7 @@ return [
         'cache' => 'file' // 'file' or 'redis'
     ],
     'jwt' => [
-        'secret' => 'your-super-secret-jwt-key-here',
+        'secret' => 'jwt-key-here',
         'algorithm' => 'HS256',
         'expire_time' => 3600, // 1小时过期
         'refresh_time' => 7200  // 2小时内可刷新
