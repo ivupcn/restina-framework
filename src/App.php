@@ -299,6 +299,7 @@ class App
         $this->diContainer->set(Config::class, $this->config);
         $this->diContainer->set(Cache::class, $this->cache);
         $this->diContainer->set(Db::class, $this->db);
+        $this->diContainer->set(Jwt::class, new Jwt($this->config));
     }
 
     /**
