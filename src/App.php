@@ -253,7 +253,7 @@ class App
         $hooksPath = $this->appPath . DIRECTORY_SEPARATOR . 'hooks.php';
 
         if (file_exists($hooksPath)) {
-            $hooks = require $hooksPath;
+            $hooks = require_once $hooksPath;
             // 直接使用数组而不是 HookConfig 对象
             Hook::loadFromConfig($hooks); // 修正方法名
         }
@@ -331,6 +331,41 @@ class App
     {
         // 添加 Body 解析中间件
         $this->slimApp->addBodyParsingMiddleware();
+
+        $middlewarePath = $this->appPath . DIRECTORY_SEPARATOR . 'middlewares.php';
+        if (file_exists($middlewarePath)) {
+            $middlewares = require_once $middlewarePath;
+            foreach ($middlewares as $middleware) {
+                if (is_string($middleware)) {
+                    // 如果是字符串形式，尝试从容器解析
+                    if ($this->diContainer->has($middleware)) {
+                        $instance = $this->diContainer->get($middleware);
+                    } else {
+                        // 如果不在容器中，直接实例化
+                        $instance = new $middleware();
+                    }
+                } elseif (is_callable($middleware)) {
+                    // 如果是可调用形式，直接使用
+                    $instance = $middleware;
+                } elseif (is_array($middleware)) {
+                    // 如果是数组形式，第一个元素为类名，第二个为参数
+                    $className = $middleware[0];
+                    $params = $middleware[1] ?? [];
+                    if ($this->diContainer->has($className)) {
+                        $instance = $this->diContainer->get($className);
+                    } else {
+                        $reflection = new \ReflectionClass($className);
+                        $instance = $reflection->newInstanceArgs($params);
+                    }
+                } else {
+                    // 其他情况直接使用
+                    $instance = $middleware;
+                }
+                // 添加中间件到 Slim 应用
+                $this->slimApp->add($instance);
+            }
+        }
+
         // 添加错误处理中间件
         $this->slimApp->addErrorMiddleware(!$this->isDebugMode, true, true);
     }

@@ -82,7 +82,8 @@ www  WEB部署目录（或者子目录）
 │  ├─Models             模型目录
 │  ├─Views              视图目录
 │  ├─config.php         配置文件
-│  └─hooks.php          钩子配置文件
+│  ├─hooks.php          钩子配置文件
+│  └─middlewares.php    中间件配置文件
 │
 ├─public                WEB目录（对外访问目录）
 │  ├─index.php          入口文件
