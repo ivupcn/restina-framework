@@ -12,6 +12,13 @@ use Restina\Container;
 use Restina\Db;
 use Restina\Middleware;
 
+/**
+ * @author 飞翔的蓝 <ivup@ivup.cn>
+ * @property \Restina\Cache $cache
+ * @property \Restina\Config $config
+ * @property \Restina\Db $db
+ * @property \Restina\Jwt $jwt
+ */
 class App
 {
     private static ?self $instance = null;
@@ -37,8 +44,8 @@ class App
      */
     private const SERVICE_NAME_MAP = [
         'cache' => Cache::class,
-        'db' => Db::class,
         'config' => Config::class,
+        'db' => Db::class,
         'jwt' => Jwt::class,
     ];
 
