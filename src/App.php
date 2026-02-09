@@ -10,9 +10,11 @@ use SplFileInfo;
 use Restina\Hook;
 use Restina\Container;
 use Restina\Db;
+use Restina\Middleware;
 
 class App
 {
+    private static ?self $instance = null;
     private \Slim\App $slimApp;
     private Controller $controller;
     private Container $diContainer;
@@ -31,11 +33,33 @@ class App
     private bool $bootstrapped = false;
 
     /**
+     * 服务名称映射表 - 将别名映射到实际类名
+     */
+    private const SERVICE_NAME_MAP = [
+        'cache' => Cache::class,
+        'db' => Db::class,
+        'config' => Config::class,
+        'jwt' => Jwt::class,
+    ];
+
+    /**
      * 静态工厂方法
      */
     public static function init(array $options = []): self
     {
-        return new static($options);
+        if (self::$instance === null) {
+            self::$instance = new static($options);
+        }
+
+        return self::$instance;
+    }
+
+    /**
+     * 获取当前实例（如果没有则返回null）
+     */
+    public static function getInstance(): ?self
+    {
+        return self::$instance;
     }
 
     /**
@@ -47,6 +71,58 @@ class App
         $this->initializePaths();
         // 初始化 Slim
         $this->initializeSlimApp();
+    }
+
+    /**
+     * 魔术方法 - 支持通过 $app->property 访问容器中的服务
+     */
+    public function __get(string $property)
+    {
+        // 检查容器中是否有对应的服务
+        if ($this->diContainer !== null) {
+            // 首先检查是否直接存在于容器中
+            if ($this->diContainer->isInstantiated($property)) {
+                return $this->diContainer->get($property);
+            }
+
+            // 然后检查服务名称映射
+            if (isset(self::SERVICE_NAME_MAP[$property])) {
+                $serviceClass = self::SERVICE_NAME_MAP[$property];
+                if ($this->diContainer->isInstantiated($serviceClass)) {
+                    return $this->diContainer->get($serviceClass);
+                }
+            }
+        }
+
+        // 属性不存在时抛出异常
+        throw new \OutOfBoundsException(
+            sprintf(
+                "Property '%s' does not exist or is not accessible through the container.",
+                $property
+            )
+        );
+    }
+
+    /**
+     * 魔术方法 - 支持检查属性是否存在
+     */
+    public function __isset(string $property): bool
+    {
+        // 检查容器中是否有对应的服务
+        if ($this->diContainer !== null) {
+            // 检查是否直接存在于容器中
+            if ($this->diContainer->isInstantiated($property)) {
+                return true;
+            }
+
+            // 检查服务名称映射
+            if (isset(self::SERVICE_NAME_MAP[$property])) {
+                $serviceClass = self::SERVICE_NAME_MAP[$property];
+                return $this->diContainer->isInstantiated($serviceClass);
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -122,7 +198,7 @@ class App
      */
     public function make(string $className, array $parameters = [])
     {
-        if ($this->diContainer->has($className)) {
+        if ($this->diContainer->isInstantiated($className)) {
             return $this->diContainer->get($className);
         }
 
@@ -329,45 +405,8 @@ class App
     // 中间件设置
     private function setupMiddlewares(): void
     {
-        // 添加 Body 解析中间件
-        $this->slimApp->addBodyParsingMiddleware();
-
-        $middlewarePath = $this->appPath . DIRECTORY_SEPARATOR . 'middlewares.php';
-        if (file_exists($middlewarePath)) {
-            $middlewares = require_once $middlewarePath;
-            foreach ($middlewares as $middleware) {
-                if (is_string($middleware)) {
-                    // 如果是字符串形式，尝试从容器解析
-                    if ($this->diContainer->has($middleware)) {
-                        $instance = $this->diContainer->get($middleware);
-                    } else {
-                        // 如果不在容器中，直接实例化
-                        $instance = new $middleware();
-                    }
-                } elseif (is_callable($middleware)) {
-                    // 如果是可调用形式，直接使用
-                    $instance = $middleware;
-                } elseif (is_array($middleware)) {
-                    // 如果是数组形式，第一个元素为类名，第二个为参数
-                    $className = $middleware[0];
-                    $params = $middleware[1] ?? [];
-                    if ($this->diContainer->has($className)) {
-                        $instance = $this->diContainer->get($className);
-                    } else {
-                        $reflection = new \ReflectionClass($className);
-                        $instance = $reflection->newInstanceArgs($params);
-                    }
-                } else {
-                    // 其他情况直接使用
-                    $instance = $middleware;
-                }
-                // 添加中间件到 Slim 应用
-                $this->slimApp->add($instance);
-            }
-        }
-
-        // 添加错误处理中间件
-        $this->slimApp->addErrorMiddleware(!$this->isDebugMode, true, true);
+        $manager = new Middleware($this->slimApp, $this->diContainer, $this->isDebugMode, $this);
+        $manager->registerMiddlewares($this->appPath);
     }
 
     // 控制器设置
