@@ -7,6 +7,7 @@ use Firebase\JWT\JWT as FirebaseJWT;
 use Firebase\JWT\Key;
 use Firebase\JWT\ExpiredException;
 use Firebase\JWT\SignatureInvalidException;
+use Restina\Config;
 
 class Jwt
 {

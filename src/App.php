@@ -11,6 +11,7 @@ use Restina\Hook;
 use Restina\Container;
 use Restina\Db;
 use Restina\Middleware;
+use Restina\Jwt;
 
 /**
  * @author 飞翔的蓝 <ivup@ivup.cn>
