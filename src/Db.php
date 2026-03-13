@@ -24,7 +24,6 @@ class Db
     {
         $dbConfig = $this->config->get('database', []);
         $connections = $dbConfig['connections'] ?? [];
-        $defaultConnection = $dbConfig['default'] ?? 'mysql';
 
         if (!empty($connections)) {
             foreach ($connections as $name => $connection) {

@@ -126,18 +126,26 @@ class Document
         $description = '';
 
         foreach ($lines as $line) {
+            // 移除首尾空白
             $line = trim($line);
-            // 移除注释标记
-            $line = preg_replace('/^\/\*\*|^\s*\*\s?|^\s*\*\/$/', '', $line);
 
-            if (empty($line) || str_starts_with($line, '@')) {
+            // 完全跳过注释开始和结束标记
+            if ($line === '/**' || $line === '*/' || preg_match('/^\/\*\*+$/', $line)) {
                 continue;
             }
 
-            if (empty($summary) && !empty(trim($line))) {
-                $summary = trim($line);
+            // 移除行开头的 * 及其周围的空白
+            $cleanLine = preg_replace('/^\*\s?/', '', $line);
+
+            // 跳过空行和注解标签
+            if (empty($cleanLine) || str_starts_with(ltrim($cleanLine), '@')) {
+                continue;
+            }
+
+            if (empty($summary) && !empty(trim($cleanLine))) {
+                $summary = trim($cleanLine);
             } elseif (!empty($summary)) {
-                $description .= trim($line) . ' ';
+                $description .= trim($cleanLine) . ' ';
             }
         }
 
