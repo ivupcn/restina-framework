@@ -34,6 +34,7 @@ class Middleware
             $middlewares = require_once $middlewarePath;
 
             if (is_array($middlewares)) {
+                $middlewares = array_reverse($middlewares);
                 foreach ($middlewares as $middleware) {
                     $this->registerMiddleware($middleware);
                 }
