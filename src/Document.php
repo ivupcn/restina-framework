@@ -11,6 +11,22 @@ class Document
 {
     private array $config;
 
+    protected array $schemas = [
+        'Error' => [
+            'type' => 'object',
+            'properties' => [
+                'error' => [
+                    'type' => 'string',
+                    'description' => '错误信息'
+                ],
+                'message' => [
+                    'type' => 'string',
+                    'description' => '详细的错误信息'
+                ]
+            ]
+        ]
+    ];
+
     public function __construct(array $config = [])
     {
         $this->config = array_merge([
@@ -45,21 +61,7 @@ class Document
             ],
             'paths' => [],
             'components' => [
-                'schemas' => [
-                    'Error' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'error' => [
-                                'type' => 'string',
-                                'description' => '错误信息'
-                            ],
-                            'message' => [
-                                'type' => 'string',
-                                'description' => '详细的错误信息'
-                            ]
-                        ]
-                    ]
-                ]
+                'schemas' => $this->schemas
             ]
         ];
 
@@ -444,51 +446,276 @@ class Document
 
     private function parseResponses(ReflectionMethod $method, string $docComment): array
     {
-        $responses = [
-            '200' => [
-                'description' => 'Successful response',
-                'content' => [
-                    'application/json' => [
-                        'schema' => [
-                            'type' => 'object'
+        $responses = [];
+
+        // 首先检查是否有 @response 注解
+        $responseLines = $this->extractTagLines($docComment, 'response');
+
+        foreach ($responseLines as $line) {
+            $responseInfo = $this->parseResponseLine($line);
+            if ($responseInfo) {
+                $statusCode = $responseInfo['status'];
+                $description = $responseInfo['description'];
+                $contentType = $responseInfo['content_type'] ?? 'application/json';
+
+                $responses[$statusCode] = [
+                    'description' => $description,
+                    'content' => [
+                        $contentType => [
+                            'schema' => $this->getResponseSchema($responseInfo['type'] ?? null, $docComment)
                         ]
                     ]
-                ]
-            ]
+                ];
+            }
+        }
+
+        // 如果没有定义任何响应，则根据返回类型生成默认响应
+        if (empty($responses)) {
+            $returnType = $method->getReturnType();
+
+            if ($returnType) {
+                $returnTypeName = $returnType->getName();
+
+                if ($returnTypeName === 'void') {
+                    // void 类型返回 204 No Content
+                    $responses['204'] = [
+                        'description' => 'No content'
+                    ];
+                } else {
+                    // 根据实际返回类型生成响应
+                    $responses['200'] = [
+                        'description' => 'Successful response',
+                        'content' => [
+                            'application/json' => [
+                                'schema' => $this->createSchemaForType($returnTypeName)
+                            ]
+                        ]
+                    ];
+                }
+            } else {
+                // 如果没有返回类型声明，使用通用对象
+                $responses['200'] = [
+                    'description' => 'Successful response',
+                    'content' => [
+                        'application/json' => [
+                            'schema' => [
+                                'type' => 'object'
+                            ]
+                        ]
+                    ]
+                ];
+            }
+        }
+
+        // 添加常见的错误响应（如果没有显式定义的话）
+        if (!isset($responses['400'])) {
+            // 检查是否有参数验证规则，如果有则添加 400 错误响应
+            if ($this->hasValidationRules($docComment)) {
+                $responses['400'] = [
+                    'description' => 'Bad Request - Validation error',
+                    'content' => [
+                        'application/json' => [
+                            'schema' => $this->schemas['Error']
+                        ]
+                    ]
+                ];
+            }
+        }
+
+        $responses = $this->addCommonResponses($responses, $method, $docComment);
+
+        return $responses;
+    }
+
+    /**
+     * 解析 @response 注解行
+     * 格式: @response 200 {"type": "User", "description": "Success response"}
+     * 或者: @response 200 Success message
+     */
+    private function parseResponseLine(string $responseLine): ?array
+    {
+        // 匹配 @response status description 或 @response status type description
+        $pattern = '/^(\d+)\s+(?:\{([^}]+)\}|([^\{].*))$/';
+        if (preg_match($pattern, $responseLine, $matches)) {
+            $status = $matches[1];
+
+            if (isset($matches[2])) {
+                // 解析 JSON 格式的响应定义
+                $jsonDef = '{' . $matches[2] . '}';
+                $data = json_decode($jsonDef, true);
+                if ($data) {
+                    return [
+                        'status' => $status,
+                        'type' => $data['type'] ?? null,
+                        'description' => $data['description'] ?? 'Response for status ' . $status,
+                        'content_type' => $data['content_type'] ?? 'application/json'
+                    ];
+                }
+            }
+
+            // 简单格式: 状态码 + 描述
+            return [
+                'status' => $status,
+                'description' => trim($matches[3] ?? $matches[2]),
+                'type' => null
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取响应的 Schema 定义
+     */
+    private function getResponseSchema(?string $type, string $docComment): array
+    {
+        if ($type) {
+            return $this->createSchemaForType($type);
+        }
+
+        // 尝试从注释中解析返回值信息
+        $returnLines = $this->extractTagLines($docComment, 'return');
+        if (!empty($returnLines)) {
+            $firstReturn = $returnLines[0];
+            $pattern = '/^([^\s]+)(?:\s+(.+))?$/';
+            if (preg_match($pattern, $firstReturn, $matches)) {
+                $returnType = $matches[1];
+                return $this->createSchemaForType($returnType);
+            }
+        }
+
+        // 默认返回通用对象
+        return [
+            'type' => 'object'
+        ];
+    }
+
+    /**
+     * 根据类型创建 Schema
+     */
+    private function createSchemaForType(string $type): array
+    {
+        // 处理数组类型，如 User[]
+        if (substr($type, -2) === '[]') {
+            $itemType = substr($type, 0, -2);
+            return [
+                'type' => 'array',
+                'items' => $this->createSchemaForType($itemType)
+            ];
+        }
+
+        // 映射 PHP 类型到 Swagger 类型
+        $typeMap = [
+            'int' => 'integer',
+            'float' => 'number',
+            'double' => 'number',
+            'bool' => 'boolean',
+            'array' => 'array',
+            'object' => 'object',
+            'string' => 'string',
+            'void' => 'null'
         ];
 
-        // 检查是否有错误响应
-        if ($this->hasErrorResponses($docComment)) {
-            $responses['400'] = [
-                'description' => 'Bad request - Validation error',
+        $swaggerType = $typeMap[strtolower($type)] ?? 'object';
+
+        $schema = ['type' => $swaggerType];
+
+        // 对于对象类型，我们可以尝试引用组件中的定义（如果有的话）
+        if ($swaggerType === 'object' && $type !== 'array' && $type !== 'object') {
+            // 如果不是基本类型，假设它是一个模型
+            $schema['$ref'] = '#/components/schemas/' . $type;
+        }
+
+        return $schema;
+    }
+
+    /**
+     * 检查是否有验证规则
+     */
+    private function hasValidationRules(string $docComment): bool
+    {
+        return str_contains($docComment, '{@v') || $this->hasRequestParamsWithValidation($docComment);
+    }
+
+    /**
+     * 检查参数是否有验证规则
+     */
+    private function hasRequestParamsWithValidation(string $docComment): bool
+    {
+        $paramLines = $this->extractTagLines($docComment, 'param');
+        foreach ($paramLines as $line) {
+            if (str_contains($line, '{@v')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 添加常见的 HTTP 响应状态码
+     */
+    private function addCommonResponses(array $responses, ReflectionMethod $method, string $docComment): array
+    {
+        // 添加 401 Unauthorized (如果没有定义的话)
+        if (!isset($responses['401'])) {
+            if ($this->hasAuthAnnotation($docComment)) {
+                $responses['401'] = [
+                    'description' => 'Unauthorized'
+                ];
+            }
+        }
+
+        // 添加 403 Forbidden (如果没有定义的话)
+        if (!isset($responses['403'])) {
+            if ($this->hasAuthAnnotation($docComment) || $this->hasPermissionAnnotation($docComment)) {
+                $responses['403'] = [
+                    'description' => 'Forbidden'
+                ];
+            }
+        }
+
+        // 对于修改数据的方法，添加 422 Unprocessable Entity
+        $methodName = strtolower($method->getName());
+        $httpMethods = ['post', 'put', 'patch', 'delete'];
+
+        $docCommentLower = strtolower($docComment);
+        $needsValidationResponse = false;
+
+        foreach ($httpMethods as $httpMethod) {
+            if (preg_match("/@route\s+$httpMethod/i", $docCommentLower)) {
+                $needsValidationResponse = true;
+                break;
+            }
+        }
+
+        if ($needsValidationResponse && !isset($responses['422'])) {
+            $responses['422'] = [
+                'description' => 'Unprocessable Entity - Validation failed',
                 'content' => [
                     'application/json' => [
-                        'schema' => [
-                            '$ref' => '#/components/schemas/Error'
-                        ]
+                        'schema' => $this->schemas['Error']
                     ]
                 ]
             ];
         }
 
-        // 检查返回类型
-        $returnType = $method->getReturnType();
-        if ($returnType) {
-            $returnTypeName = $returnType->getName();
-            if ($returnTypeName === 'void') {
-                $responses['204'] = [
-                    'description' => 'No content'
-                ];
-                unset($responses['200']);
-            }
-        }
-
         return $responses;
     }
 
-    private function hasErrorResponses(string $docComment): bool
+    /**
+     * 检查是否有认证相关的注解
+     */
+    private function hasAuthAnnotation(string $docComment): bool
     {
-        return str_contains($docComment, '{@v') || str_contains($docComment, '@param');
+        return str_contains(strtolower($docComment), '@auth') || str_contains(strtolower($docComment), '@jwt');
+    }
+
+    /**
+     * 检查是否有权限相关的注解
+     */
+    private function hasPermissionAnnotation(string $docComment): bool
+    {
+        return str_contains(strtolower($docComment), '@permission') || str_contains(strtolower($docComment), '@role');
     }
 
     private function parseRequestBody(ReflectionMethod $method, string $docComment): ?array
