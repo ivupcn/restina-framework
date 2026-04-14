@@ -9,7 +9,7 @@ use ReflectionNamedType;
 
 class Document
 {
-    private array $config;
+    protected string $dir;
 
     protected array $schemas = [
         'Error' => [
@@ -27,17 +27,11 @@ class Document
         ]
     ];
 
-    public function __construct(array $config = [])
+    public function __construct(string $dir = __DIR__ . '/../../../app/Controllers')
     {
-        $this->config = array_merge([
-            'title' => 'API 文档',
-            'description' => '根据控制器注释生成的API文档',
-            'version' => '1.0.0',
-            'basePath' => '/',
-            'schemes' => ['http'],
-            'host' => 'localhost:8080'
-        ], $config);
+        $this->dir = $dir;
     }
+
 
     public function generate(?array $controllerClasses = null): array
     {
@@ -46,24 +40,7 @@ class Document
             $controllerClasses = $this->getAllControllerClasses();
         }
 
-        $swagger = [
-            'openapi' => '3.0.0',
-            'info' => [
-                'title' => $this->config['title'],
-                'description' => $this->config['description'],
-                'version' => $this->config['version']
-            ],
-            'servers' => [
-                [
-                    'url' => $this->config['schemes'][0] . '://' . $this->config['host'],
-                    'description' => '开发服务器'
-                ]
-            ],
-            'paths' => [],
-            'components' => [
-                'schemas' => $this->schemas
-            ]
-        ];
+        $swagger = [];
 
         foreach ($controllerClasses as $class) {
             $reflection = new ReflectionClass($class);
@@ -94,11 +71,11 @@ class Document
                     }
 
                     // 初始化路径
-                    if (!isset($swagger['paths'][$path])) {
-                        $swagger['paths'][$path] = [];
+                    if (!isset($swagger[$path])) {
+                        $swagger[$path] = [];
                     }
 
-                    $swagger['paths'][$path][strtolower($httpMethod)] = $operation;
+                    $swagger[$path][strtolower($httpMethod)] = $operation;
                 }
             }
         }
@@ -153,11 +130,17 @@ class Document
 
         $description = trim($description);
 
-        return [
+        $result = [
             'summary' => $summary ?: $method->getName(),
             'description' => $description,
             'tags' => [$this->getControllerTag($method->getDeclaringClass()->getName())]
         ];
+
+        // 解析权限标识并添加到结果中
+        $permissionId = $this->extractPermissionId($docComment);
+        $result['permissionId'] = $permissionId ? $permissionId : null;
+
+        return $result;
     }
 
     private function getControllerTag(string $className): string
@@ -214,6 +197,20 @@ class Document
         }
 
         return $tagLines;
+    }
+
+    /**
+     * 提取权限标识
+     */
+    private function extractPermissionId(string $docComment): ?string
+    {
+        $permissionLines = $this->extractTagLines($docComment, 'permissionId');
+
+        if (!empty($permissionLines)) {
+            return trim($permissionLines[0]);
+        }
+
+        return null;
     }
 
     private function parseParamLine(string $paramLine): ?array
@@ -715,7 +712,7 @@ class Document
      */
     private function hasPermissionAnnotation(string $docComment): bool
     {
-        return str_contains(strtolower($docComment), '@permission') || str_contains(strtolower($docComment), '@role');
+        return str_contains(strtolower($docComment), '@permission') || str_contains(strtolower($docComment), '@permissionId') || str_contains(strtolower($docComment), '@role');
     }
 
     private function parseRequestBody(ReflectionMethod $method, string $docComment): ?array
@@ -865,14 +862,13 @@ class Document
     private function getAllControllerClasses(): array
     {
         $classes = [];
-        $dir = __DIR__ . '/../../../app/Controllers'; // 修改为新的控制器目录
 
-        if (!is_dir($dir)) {
+        if (!is_dir($this->dir)) {
             return $classes;
         }
 
         $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($dir)
+            new \RecursiveDirectoryIterator($this->dir)
         );
 
         foreach ($iterator as $file) {
