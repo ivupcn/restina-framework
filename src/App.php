@@ -326,6 +326,8 @@ class App
     private function setDebugMode(): self
     {
         $this->isDebugMode = $this->config->get('app.debug', false);
+        // 添加错误处理中间件
+        $this->slimApp->addErrorMiddleware(!$this->isDebugMode, true, true);
         return $this;
     }
 

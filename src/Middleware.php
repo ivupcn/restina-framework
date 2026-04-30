@@ -30,6 +30,7 @@ class Middleware
         $this->slimApp->addBodyParsingMiddleware();
 
         $middlewarePath = $appPath . DIRECTORY_SEPARATOR . 'middlewares.php';
+
         if (file_exists($middlewarePath)) {
             $middlewares = require_once $middlewarePath;
 
@@ -40,9 +41,6 @@ class Middleware
                 }
             }
         }
-
-        // 添加错误处理中间件
-        $this->slimApp->addErrorMiddleware(!$this->isDebugMode, true, true);
 
         return $this;
     }
