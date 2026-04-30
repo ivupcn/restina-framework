@@ -159,6 +159,9 @@ class Controller
             // 将 app 实例附加到请求对象
             $request = $request->withAttribute('app', $this->app);
 
+            // 检查权限
+            $this->checkPermission($docComment, $request);
+
             // 执行请求处理钩子
             $this->executeRequestHooks($request, $response, $args, $controllerInstance, $method);
 
@@ -293,11 +296,40 @@ class Controller
         return $this->diContainer->make($className);
     }
 
+    private function checkPermission(string $docComment, Request $request): void
+    {
+        if (preg_match('/@permissionId\s+([^\s]+)/', $docComment, $matches)) {
+            $permissionId = $matches[1];
+            // 默认权限检查通过，除非钩子函数返回 false 或抛出异常
+            $permissionCheckResult = Hook::applyFilters('permission.check', true, $request);
+            if (!$permissionCheckResult) {
+                throw new \Exception('Permission check failed');
+            }
+        }
+    }
+
     private function buildMethodParameters(ReflectionMethod $method, Request $request, Response $response, array $routeArgs, string $docComment): array
     {
         $parameters = [];
         $queryParams = $request->getQueryParams();
         $parsedBody = $request->getParsedBody();
+
+        // 获取原始输入数据
+        $inputStream = $request->getBody()->__toString();
+        $parsedData = [];
+
+        // 只有在必要时才解析输入流
+        if (!empty($inputStream) && in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE', 'POST'])) {
+            $contentType = $request->getHeaderLine('Content-Type');
+            if (str_contains($contentType, 'application/json')) {
+                $parsedData = json_decode($inputStream, true) ?: [];
+            } elseif (str_contains($contentType, 'application/x-www-form-urlencoded')) {
+                parse_str($inputStream, $parsedData);
+            } else {
+                // 尝试解析为JSON，如果失败则忽略
+                $parsedData = json_decode($inputStream, true) ?: [];
+            }
+        }
 
         // 触发参数验证前钩子
         Hook::doAction('parameter.validate_before', [
@@ -325,40 +357,54 @@ class Controller
                 }
             }
 
+            $value = null;
+            $found = false;
+
             // 优先从路由参数获取
             if (isset($routeArgs[$paramName])) {
                 $value = $this->convertParameter($routeArgs[$paramName], $type);
-                $value = Validator::validate($value, $docComment, $paramName);
-                $parameters[] = $value;
-                continue;
+                $found = true;
             }
 
-            // 从查询参数获取
-            if (isset($queryParams[$paramName])) {
-                $value = $this->convertParameter($queryParams[$paramName], $type);
-                $value = Validator::validate($value, $docComment, $paramName);
-                $parameters[] = $value;
-                continue;
+            // 对于 PUT/PATCH/DELETE 请求，优先从请求体获取
+            elseif (in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE']) && is_array($parsedData) && isset($parsedData[$paramName])) {
+                $value = $this->convertParameter($parsedData[$paramName], $type);
+                $found = true;
             }
 
             // 从请求体获取
-            if (is_array($parsedBody) && isset($parsedBody[$paramName])) {
+            elseif (is_array($parsedBody) && isset($parsedBody[$paramName])) {
                 $value = $this->convertParameter($parsedBody[$paramName], $type);
-                $value = Validator::validate($value, $docComment, $paramName);
-                $parameters[] = $value;
-                continue;
+                $found = true;
+            }
+
+            // 从输入流解析的数据获取
+            elseif (is_array($parsedData) && isset($parsedData[$paramName])) {
+                $value = $this->convertParameter($parsedData[$paramName], $type);
+                $found = true;
+            }
+
+            // 从查询参数获取
+            elseif (isset($queryParams[$paramName])) {
+                $value = $this->convertParameter($queryParams[$paramName], $type);
+                $found = true;
             }
 
             // 检查特殊参数名
-            if ($type && $type->getName() === 'array' && in_array($paramName, ['payload', 'data', 'body'], true)) {
-                $value = is_array($parsedBody) ? $parsedBody : [];
-                $value = Validator::validate($value, $docComment, $paramName);
-                $parameters[] = $value;
-                continue;
+            elseif ($type && $type->getName() === 'array' && in_array($paramName, ['payload', 'data', 'body'], true)) {
+                // 对于 PUT/PATCH/DELETE，优先使用输入流数据
+                if (in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE']) && !empty($parsedData)) {
+                    $value = $parsedData;
+                } else {
+                    $value = is_array($parsedBody) ? $parsedBody : [];
+                }
+                $found = true;
             }
 
-            // 使用默认值或抛出异常
-            if ($param->isDefaultValueAvailable()) {
+            if ($found) {
+                $value = Validator::validate($value, $docComment, $paramName);
+                $parameters[] = $value;
+            } elseif ($param->isDefaultValueAvailable()) {
                 $defaultValue = $param->getDefaultValue();
                 $value = Validator::validate($defaultValue, $docComment, $paramName);
                 $parameters[] = $value;
