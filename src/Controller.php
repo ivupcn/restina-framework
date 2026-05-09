@@ -24,6 +24,18 @@ class Controller
     private Container $diContainer;
 
     /**
+     * 缓存反射信息以提高性能
+     * @var array [className::methodName => ['instance' => object, 'method' => ReflectionMethod]]
+     */
+    private static array $reflectionCache = [];
+
+    /**
+     * 缓存路由处理器以减少闭包创建
+     * @var array [className::methodName => callable]
+     */
+    private static array $handlers = [];
+
+    /**
      * 构造函数.
      */
     public function __construct(private App $app, ?Container $diContainer = null)
@@ -143,15 +155,13 @@ class Controller
      */
     private function getOrCreateRouteHandler(string $className, string $methodName, array $routeInfo): callable | null
     {
-        static $handlers = [];
         $key = $className . '::' . $methodName;
-
-        if (!isset($handlers[$key])) {
-            $handlers[$key] = function (Request $request, Response $response, array $args) use ($className, $methodName, $routeInfo): Response | null {
+        if (!isset(self::$handlers[$key])) {
+            self::$handlers[$key] = function (Request $request, Response $response, array $args) use ($className, $methodName, $routeInfo): Response | null {
                 return $this->handleRouteRequest($request, $response, $args, $className, $methodName, $routeInfo);
             };
         }
-        return $handlers[$key];
+        return self::$handlers[$key];
     }
 
     /**
@@ -174,19 +184,17 @@ class Controller
         array $routeInfo
     ): Response {
         try {
-            // 缓存 Reflection 实例以提高性能
-            static $reflectionCache = [];
             $cacheKey = $class . '::' . $methodName;
 
-            if (!isset($reflectionCache[$cacheKey])) {
-                $reflectionCache[$cacheKey] = [
+            if (!isset(self::$reflectionCache[$cacheKey])) {
+                self::$reflectionCache[$cacheKey] = [
                     'instance' => $this->getControllerInstance($class),
                     'method' => (new ReflectionClass($class))->getMethod($methodName)
                 ];
             }
 
-            $controllerInstance = $reflectionCache[$cacheKey]['instance'];
-            $method = $reflectionCache[$cacheKey]['method'];
+            $controllerInstance = self::$reflectionCache[$cacheKey]['instance'];
+            $method = self::$reflectionCache[$cacheKey]['method'];
 
             // 将 app 实例附加到请求对象
             $request = $request->withAttribute('app', $this->app);
