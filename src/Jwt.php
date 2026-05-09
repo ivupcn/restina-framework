@@ -14,6 +14,7 @@ class Jwt
     private string $secret;
     private string $algorithm;
     private int $expireTime;
+    private int $refreshExpireTime;
     private int $leeway; // 添加时间偏移量，用于处理时钟偏差
 
     public function __construct(Config $config)
@@ -21,20 +22,23 @@ class Jwt
         $this->secret = $config->get('jwt.secret', 'your-default-secret-key');
         $this->algorithm = $config->get('jwt.algorithm', 'HS256');
         $this->expireTime = $config->get('jwt.expire_time', 3600); // 默认1小时
+        $this->refreshExpireTime = $config->get('jwt.refresh_expire_time', 7200);
         $this->leeway = $config->get('jwt.leeway', 60); // 默认60秒时间偏移量
     }
 
     /**
      * 生成 JWT Token
      */
-    public function generateToken(array $payload = [], ?int $customExpireTime = null): string
+    public function generateToken(array $payload = [], ?int $customExpireTime = null, ?int $customRefreshExpireTime = null): string
     {
         $issuedAt = time();
         $expireAt = $issuedAt + ($customExpireTime ?? $this->expireTime);
+        $refreshExpireAt = $issuedAt + ($customRefreshExpireTime ?? $this->refreshExpireTime);
 
         $token = [
             'iat' => $issuedAt,          // 签发时间
             'exp' => $expireAt,          // 过期时间
+            'refresh_exp' => $refreshExpireAt, // 刷新过期时间'
             'data' => $payload           // 用户数据
         ];
 
@@ -63,16 +67,14 @@ class Jwt
      */
     public function verifyTokenStrict(string $token): object
     {
-        // 设置时间偏移量以处理时钟差异
-        FirebaseJWT::$leeway = $this->leeway;
-
         try {
+            // 设置时间偏移量以处理时钟差异
+            FirebaseJWT::$leeway = $this->leeway;
             $decoded = FirebaseJWT::decode($token, new Key($this->secret, $this->algorithm));
             // 额外检查过期时间（虽然库本身会检查，但保留这个检查作为双重保险）
             if (isset($decoded->exp) && $decoded->exp < time()) {
                 throw new ExpiredException('Token has expired');
             }
-
             return $decoded;
         } catch (ExpiredException $e) {
             throw new ExpiredException('Token has expired');

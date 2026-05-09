@@ -11,14 +11,14 @@ class Validator
      * 验证参数
      * 
      * @param mixed $value 参数值
-     * @param string $docComment 方法的文档注释
+     * @param string $params 参数注释
      * @param string $paramName 参数名
      * @return mixed 验证后的参数值
      * @throws InvalidArgumentException
      */
-    public static function validate(mixed $value, string $docComment, string $paramName): mixed
+    public static function validate(mixed $value, string $params, string $paramName): mixed
     {
-        $rules = self::extractRules($docComment, $paramName);
+        $rules = self::extractRule($params);
 
         if (empty($rules)) {
             return $value;
@@ -30,35 +30,10 @@ class Validator
         }
 
         foreach ($rules as $rule) {
-            $value = self::applyRule($value, $rule, $docComment, $paramName);
+            $value = self::applyRule($value, $rule, $paramName);
         }
 
         return $value;
-    }
-
-    /**
-     * 从文档注释中提取参数规则
-     * 
-     * @param string $docComment 文档注释
-     * @param string $paramName 参数名
-     * @return array 规则数组
-     */
-    private static function extractRules(string $docComment, string $paramName): array
-    {
-        $pattern = '/@param\s+[^\s]+\s+\$' . preg_quote($paramName, '/') . '\s+{(@v\s+[^}]+)}/i';
-        preg_match_all($pattern, $docComment, $matches);
-
-        if (empty($matches[1])) {
-            return [];
-        }
-
-        $rules = [];
-        foreach ($matches[1] as $match) {
-            $ruleString = trim(str_replace('@v', '', $match));
-            $rules = array_merge($rules, self::parseRules($ruleString));
-        }
-
-        return $rules;
     }
 
     /**
@@ -67,7 +42,7 @@ class Validator
      * @param string $ruleString 规则字符串
      * @return array 规则数组
      */
-    private static function parseRules(string $ruleString): array
+    public static function extractRule(string $ruleString): array
     {
         $rules = [];
         $parts = explode('|', $ruleString);
@@ -96,12 +71,11 @@ class Validator
      * 
      * @param mixed $value 参数值
      * @param array $rule 规则
-     * @param string $docComment 方法的文档注释
      * @param string $paramName 参数名
      * @return mixed 验证后的参数值
      * @throws InvalidArgumentException
      */
-    private static function applyRule(mixed $value, array $rule, string $docComment, string $paramName): mixed
+    private static function applyRule(mixed $value, array $rule, string $paramName): mixed
     {
         $ruleName = $rule['name'];
         $ruleValue = $rule['value'];

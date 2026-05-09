@@ -12,6 +12,7 @@ use Restina\Container;
 use Restina\Db;
 use Restina\Middleware;
 use Restina\Jwt;
+use Restina\Attribute;
 
 /**
  * @author 飞翔的蓝 <ivup@ivup.cn>
@@ -19,6 +20,7 @@ use Restina\Jwt;
  * @property \Restina\Config $config
  * @property \Restina\Db $db
  * @property \Restina\Jwt $jwt
+ * @property \Restina\Attribute $attribute
  */
 class App
 {
@@ -29,6 +31,8 @@ class App
     private Config $config;
     private Cache $cache;
     private Db $db;
+    private Jwt $jwt;
+    private Attribute $attribute;
     private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
@@ -48,6 +52,7 @@ class App
         'config' => Config::class,
         'db' => Db::class,
         'jwt' => Jwt::class,
+        'attribute' => Attribute::class,
     ];
 
     /**
@@ -359,6 +364,9 @@ class App
         $this->db = new Db($this->config);
         // 创建依赖注入容器
         $this->diContainer = new Container();
+        $this->jwt = new Jwt($this->config);
+        // 创建属性注解服务
+        $this->attribute = new Attribute($this->appPath . DIRECTORY_SEPARATOR . 'Controllers');
         // 将核心服务绑定到容器
         $this->bindCoreServicesToContainer();
         $this->registered = true;
@@ -385,7 +393,7 @@ class App
         $this->diContainer->set(Config::class, $this->config);
         $this->diContainer->set(Cache::class, $this->cache);
         $this->diContainer->set(Db::class, $this->db);
-        $this->diContainer->set(Jwt::class, new Jwt($this->config));
+        $this->diContainer->set(Jwt::class, $this->jwt);
     }
 
     /**
@@ -422,129 +430,18 @@ class App
     // 控制器设置
     private function setupControllers(): void
     {
-        $directory = $this->appPath . DIRECTORY_SEPARATOR . 'Controllers';
-
-        if (!is_dir($directory)) {
-            throw new \InvalidArgumentException("Controller directory not found: { $directory}");
-        }
-
-        // 使用缓存键
-        $controllerClassesKey = 'controller_classes';
-        $routesKey = 'routes';
-
-        // 检查是否在调试模式下，如果是则跳过缓存
         if ($this->isDebugMode) {
-            $classes = $this->findControllerClasses($directory);
-            $routes = $this->parseRoutesFromControllers($classes);
+            $routes = $this->attribute->getAllRoutes();
         } else {
-            // 尝试从缓存获取控制器类列表
-            $classes = $this->cache->get($controllerClassesKey);
-            if ($classes === null) {
-                $classes = $this->findControllerClasses($directory);
-                // 缓存控制器类列表（24小时）
-                $this->cache->set($controllerClassesKey, $classes, 86400);
-            }
-
             // 尝试从缓存获取路由信息
+            $routesKey = 'routes';
             $routes = $this->cache->get($routesKey);
-            if ($routes === null) {
-                $routes = $this->parseRoutesFromControllers($classes);
+            if (empty($routes)) {
+                $doc = $this->attribute->getAllRoutes();
                 // 缓存路由信息（24小时）
                 $this->cache->set($routesKey, $routes, 86400);
             }
         }
-
         $this->controller->loadRoutes($routes);
-    }
-
-    private function findControllerClasses(string $directory): array
-    {
-        $classes = [];
-        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS));
-
-        foreach ($iterator as $file) {
-            /** @var SplFileInfo $file */
-            if ($file->getExtension() !== 'php') {
-                continue;
-            }
-
-            $relativePath = substr($file->getPathname(), strlen($directory) + 1);
-            $className = str_replace(['/', '.php'], ['\\', ''], $relativePath);
-            $fullClassName = "App\\Controllers\\" . $className;
-
-            // 验证类是否有效
-            if (class_exists($fullClassName) && $this->hasRouteMethods($fullClassName)) {
-                $classes[] = $fullClassName;
-            }
-        }
-
-        return array_values(array_unique($classes)); // 去重
-    }
-
-    private function parseRoutesFromControllers(array $controllerClasses): array
-    {
-        $routes = [];
-
-        foreach ($controllerClasses as $class) {
-            $reflection = new \ReflectionClass($class);
-            $methods = $reflection->getMethods(\ReflectionMethod::IS_PUBLIC);
-
-            foreach ($methods as $method) {
-                $docComment = $method->getDocComment();
-                $routeInfo = $this->parseRouteFromComment($docComment);
-
-                if ($routeInfo !== null) {
-                    [$methodType, $path] = $routeInfo;
-
-                    $routes[] = [
-                        'class' => $class,
-                        'method' => $method->getName(),
-                        'httpMethod' => $methodType,
-                        'path' => $path,
-                        'docComment' => $docComment
-                    ];
-                }
-            }
-        }
-
-        return $routes;
-    }
-
-    private function parseRouteFromComment(string $docComment): ?array
-    {
-        // 匹配 @route <method> <path> 格式
-        $pattern = '/@route\s+([A-Z]+)\s+(\/[^\s]+)/i';
-        preg_match($pattern, $docComment, $matches);
-
-        if (isset($matches[1]) && isset($matches[2])) {
-            return [
-                strtoupper(trim($matches[1])),  // HTTP方法
-                trim($matches[2])              // 路径
-            ];
-        }
-
-        return null;
-    }
-
-    private function hasRouteMethods(string $className): bool
-    {
-        if (!class_exists($className)) {
-            return false;
-        }
-
-        $ref = new \ReflectionClass($className);
-        $methods = $ref->getMethods(\ReflectionMethod::IS_PUBLIC);
-        foreach ($methods as $method) {
-            $docComment = $method->getDocComment();
-            if ($this->hasRoute($docComment)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasRoute(string $docComment): bool
-    {
-        return $this->parseRouteFromComment($docComment) !== null;
     }
 }
