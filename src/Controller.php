@@ -53,7 +53,6 @@ class Controller
     {
         // 设置路由缓存（如果非调试模式）
         $this->setupRouteCaching();
-
         // 批量注册路由
         $this->registerRoutes($routes);
     }
@@ -64,16 +63,6 @@ class Controller
     private function setupRouteCaching(): void
     {
         if (!$this->app->isDebugMode()) {
-            $routeCollector = $this->app->getSlimApp()->getRouteCollector();
-            $cacheFile = $this->app->getCachePath() . DIRECTORY_SEPARATOR . 'routeCollector.cache';
-
-            // 确保缓存目录存在
-            $cacheDir = dirname($cacheFile);
-            if (!is_dir($cacheDir)) {
-                mkdir($cacheDir, 0755, true);
-            }
-
-            $routeCollector->setCacheFile($cacheFile);
         }
     }
 
@@ -87,14 +76,10 @@ class Controller
     {
         $startTime = microtime(true);
         $routeCount = count($routes);
-
         $this->addDefaultRouteIfMissing($routes);
-
-        foreach ($routes as $class => $route) {
-
-            $this->registerSingleRoute($class, $route, $route['methodName'], $route['httpMethods'], $route['route']);
+        foreach ($routes as $route) {
+            $this->registerSingleRoute($route['class'], $route, $route['methodName'], $route['httpMethods'], $route['path']);
         }
-
         if ($this->app->isDebugMode()) {
             $duration = round((microtime(true) - $startTime) * 1000, 2);
             error_log("[PERFORMANCE] Registered {$routeCount} routes in {$duration}ms");
@@ -110,15 +95,14 @@ class Controller
     private function addDefaultRouteIfMissing(array $routes): void
     {
         $hasDefaultRoute = false;
-        foreach ($routes as $class => $route) {
-            if ($route['route'] === '/') {
+        foreach ($routes as $route) {
+            if ($route['path'] === '/') {
                 $hasDefaultRoute = true;
                 break;
             }
         }
-
         if (!$hasDefaultRoute) {
-            $this->app->getSlimApp()->get('/', function (Request $request, Response $response) {
+            $this->app->router->get('/', function (Request $request, Response $response) {
                 $response->getBody()->write(json_encode([
                     'error' => 'Tips',
                     'message' => 'default route missing',
@@ -142,7 +126,7 @@ class Controller
     {
         // 使用预创建的处理器（避免重复闭包创建）
         $handler = $this->getOrCreateRouteHandler($className, $methodName, $routeInfo);
-        $this->app->getSlimApp()->map($httpMethods, $route, $handler);
+        $this->app->router->map($httpMethods, $route, $handler);
     }
 
     /**

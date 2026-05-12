@@ -12,8 +12,18 @@ use Restina\App;
  */
 class Model extends EloquentModel
 {
+    /**
+     * 模型字段白名单
+     *
+     * @var array
+     */
     protected $guarded = [];
 
+    /**
+     * 模型构造函数
+     *
+     * @param array $attributes
+     */
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);

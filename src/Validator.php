@@ -5,6 +5,9 @@ namespace Restina;
 use DateTime;
 use InvalidArgumentException;
 
+/**
+ * 验证器类
+ */
 class Validator
 {
     /**

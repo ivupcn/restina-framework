@@ -18,7 +18,7 @@ class Route
      * 
      * @var string
      */
-    public string $route;
+    public string $path;
 
     /**
      * 路由代码
@@ -52,7 +52,7 @@ class Route
      * 构造函数
      *
      * @param array $methods HTTP方法数组，例如 ['GET', 'POST']
-     * @param string $route 路由路径
+     * @param string $path 路由路径
      * @param string $code 路由代码
      * @param bool $permission 是否需要权限（默认 true）
      * @param bool $jwt 是否需要JWT认证（默认 true）
@@ -60,14 +60,14 @@ class Route
      */
     public function __construct(
         array|string $methods = ['GET'],
-        string $route = '',
+        string $path = '',
         string $code = '',
         bool $permission = true,
         bool $jwt = true,
         bool $autoRefreshToken = false
     ) {
         $this->methods = $methods;
-        $this->route = $route;
+        $this->path = $path;
         $this->code = $code;
         $this->permission = $permission;
         $this->jwt = $jwt;
@@ -89,9 +89,9 @@ class Route
      * 
      * @return string
      */
-    public function getRoute(): string
+    public function getPath(): string
     {
-        return $this->route;
+        return $this->path;
     }
 
     /**

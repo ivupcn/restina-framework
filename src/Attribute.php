@@ -73,7 +73,7 @@ class Attribute
      * @param array|null $controllerClasses
      * @return array
      */
-    public function getAllRoutes(?array $controllerClasses = null): array
+    public function getRouteCollector(?array $controllerClasses = null): array
     {
         // 如果没有传入控制器类，自动扫描
         if ($controllerClasses === null) {
@@ -89,12 +89,13 @@ class Attribute
                 if (!$routeInfo) {
                     continue;
                 }
-                $paramInfo = $this->extractParams($method, $routeInfo['route']);
+                $paramInfo = $this->extractParams($method);
                 $headersInfo = $this->extractHeaders($method);
                 if ($routeInfo) {
                     $routeInfo['params'] = $paramInfo;
                     $routeInfo['headers'] = $headersInfo;
-                    $routes[$class] = $routeInfo;
+                    $routeInfo['class'] = $class;
+                    $routes[] = $routeInfo;
                 }
             }
         }
@@ -183,7 +184,7 @@ class Attribute
         return [
             'httpMethods' => $instance->getMethodsAsArray(),
             'methodName' => $method->getName(),
-            'route' => $instance->route,
+            'path' => $instance->path,
             'code' => $instance->code,
             'permission' => $instance->permission,
             'jwt' => $instance->jwt,
@@ -222,7 +223,7 @@ class Attribute
      * @param string $route
      * @return array
      */
-    private function extractParams(ReflectionMethod $method, string $route): array
+    private function extractParams(ReflectionMethod $method): array
     {
         $params = [];
         // 获取参数注解信息

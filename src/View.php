@@ -3,15 +3,32 @@
 
 namespace Restina;
 
+/**
+ * View
+ */
 class View
 {
+    /**
+     * @var string
+     */
     private string $templateDir;
 
+    /**
+     * @param string $templateDir
+     */
     public function __construct(string $templateDir)
     {
         $this->templateDir = rtrim($templateDir, '/') . '/';
     }
 
+    /**
+     * Render a template with data
+     *
+     * @param string $template
+     * @param array $data
+     * @return string
+     * @throws \InvalidArgumentException
+     */
     public function render(string $template, array $data = []): string
     {
         $templatePath = $this->templateDir . $template;

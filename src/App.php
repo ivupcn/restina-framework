@@ -3,7 +3,6 @@
 
 namespace Restina;
 
-use Slim\Factory\AppFactory;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
@@ -13,6 +12,8 @@ use Restina\Db;
 use Restina\Middleware;
 use Restina\Jwt;
 use Restina\Attribute;
+use Restina\Router;
+use Restina\ExceptionHandler;
 
 /**
  * @author 飞翔的蓝 <ivup@ivup.cn>
@@ -21,11 +22,11 @@ use Restina\Attribute;
  * @property \Restina\Db $db
  * @property \Restina\Jwt $jwt
  * @property \Restina\Attribute $attribute
+ * @property \Restina\Router $router
  */
 class App
 {
     private static ?self $instance = null;
-    private \Slim\App $slimApp;
     private Controller $controller;
     private Container $diContainer;
     private Config $config;
@@ -33,6 +34,7 @@ class App
     private Db $db;
     private Jwt $jwt;
     private Attribute $attribute;
+    private Router $router;
     private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
@@ -53,6 +55,7 @@ class App
         'db' => Db::class,
         'jwt' => Jwt::class,
         'attribute' => Attribute::class,
+        'router' => Router::class,
     ];
 
     /**
@@ -82,8 +85,6 @@ class App
     {
         // 初始化路径
         $this->initializePaths();
-        // 初始化 Slim
-        $this->initializeSlimApp();
     }
 
     /**
@@ -97,13 +98,10 @@ class App
             if ($this->diContainer->isInstantiated($property)) {
                 return $this->diContainer->get($property);
             }
-
             // 然后检查服务名称映射
             if (isset(self::SERVICE_NAME_MAP[$property])) {
                 $serviceClass = self::SERVICE_NAME_MAP[$property];
-                if ($this->diContainer->isInstantiated($serviceClass)) {
-                    return $this->diContainer->get($serviceClass);
-                }
+                return $this->make($serviceClass);
             }
         }
 
@@ -173,7 +171,7 @@ class App
             $this->setupControllers();
             $this->setupMiddlewares();
             Hook::doAction('app.started', $this);
-            $this->slimApp->run();
+            $this->router->dispatch();
         } catch (\Throwable $e) {
             error_log($e->getMessage());
             if ($this->isDebugMode) {
@@ -232,7 +230,7 @@ class App
     /**
      * 获取缓存实例
      */
-    public function getCache(): Cache  // 修正：返回 Cache 实例
+    public function getCache(): Cache  // 返回 Cache 实例
     {
         return $this->cache;
     }
@@ -243,11 +241,6 @@ class App
     public function getCacheValue(string $key, mixed $default = null): mixed  // 新增：获取缓存值的方法
     {
         return $this->cache->get($key, $default);
-    }
-
-    public function getSlimApp(): \Slim\App
-    {
-        return $this->slimApp;
     }
 
     public function getViewPath(): string
@@ -301,14 +294,6 @@ class App
     }
 
     /**
-     * 初始化 Slim 应用
-     */
-    private function initializeSlimApp(): void
-    {
-        $this->slimApp = AppFactory::create();
-    }
-
-    /**
      * 加载配置
      */
     private function loadAppConfiguration(): self
@@ -332,7 +317,13 @@ class App
     {
         $this->isDebugMode = $this->config->get('app.debug', false);
         // 添加错误处理中间件
-        $this->slimApp->addErrorMiddleware(!$this->isDebugMode, true, true);
+        // $errorMiddleware = $this->slimApp->addErrorMiddleware($this->isDebugMode, true, true);
+        // $defaultErrorHandler = $errorMiddleware->getDefaultErrorHandler();
+        // $defaultErrorHandler->forceContentType('application/json');
+        // $defaultErrorHandler->registerErrorRenderer(
+        //     'application/json',
+        //     ExceptionHandler::class
+        // );
         return $this;
     }
 
@@ -358,15 +349,18 @@ class App
         if ($this->registered) {
             return;
         }
+        // 创建依赖注入容器
+        $this->diContainer = new Container();
         // 创建缓存实例
         $this->cache = new Cache($this->config, $this->cachePath);
         // 创建数据库实例
         $this->db = new Db($this->config);
-        // 创建依赖注入容器
-        $this->diContainer = new Container();
+        // 创建JWT实例
         $this->jwt = new Jwt($this->config);
         // 创建属性注解服务
         $this->attribute = new Attribute($this->appPath . DIRECTORY_SEPARATOR . 'Controllers');
+        // 创建路由实例
+        $this->router = new Router();
         // 将核心服务绑定到容器
         $this->bindCoreServicesToContainer();
         $this->registered = true;
@@ -394,6 +388,8 @@ class App
         $this->diContainer->set(Cache::class, $this->cache);
         $this->diContainer->set(Db::class, $this->db);
         $this->diContainer->set(Jwt::class, $this->jwt);
+        $this->diContainer->set(Attribute::class, $this->attribute);
+        $this->diContainer->set(Router::class, $this->router);
     }
 
     /**
@@ -423,21 +419,21 @@ class App
     // 中间件设置
     private function setupMiddlewares(): void
     {
-        $manager = new Middleware($this->slimApp, $this->diContainer, $this->isDebugMode, $this);
-        $manager->registerMiddlewares($this->appPath);
+        // $manager = new Middleware($this->slimApp, $this->diContainer, $this->isDebugMode, $this);
+        // $manager->registerMiddlewares($this->appPath);
     }
 
     // 控制器设置
     private function setupControllers(): void
     {
         if ($this->isDebugMode) {
-            $routes = $this->attribute->getAllRoutes();
+            $routes = $this->attribute->getRouteCollector();
         } else {
             // 尝试从缓存获取路由信息
             $routesKey = 'routes';
             $routes = $this->cache->get($routesKey);
             if (empty($routes)) {
-                $doc = $this->attribute->getAllRoutes();
+                $doc = $this->attribute->getRouteCollector();
                 // 缓存路由信息（24小时）
                 $this->cache->set($routesKey, $routes, 86400);
             }

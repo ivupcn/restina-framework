@@ -6,11 +6,26 @@ namespace Restina;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Restina\Config;
 
+/**
+ * Class Db
+ * @package Restina
+ */
 class Db
 {
+    /**
+     * @var Capsule
+     */
     private Capsule $capsule;
+
+    /**
+     * @var Config
+     */
     private Config $config;
 
+    /**
+     * Db constructor.
+     * @param Config $config
+     */
     public function __construct(Config $config)
     {
         $this->config = $config;
@@ -20,6 +35,9 @@ class Db
         $this->setupEloquent();
     }
 
+    /**
+     * Setup connections.
+     */
     private function setupConnections(): void
     {
         $dbConfig = $this->config->get('database', []);
@@ -57,6 +75,12 @@ class Db
         $this->capsule->setAsGlobal();
     }
 
+    /**
+     * 设置读写分离连接
+     *
+     * @param string $name
+     * @param array $config
+     */
     private function setupReadWriteConnection(string $name, array $config): void
     {
         // 分离读写配置
@@ -72,16 +96,31 @@ class Db
         }
     }
 
+    /**
+     * Setup the Eloquent ORM instance.
+     */
     private function setupEloquent(): void
     {
         $this->capsule->bootEloquent();
     }
 
+    /**
+     * Get the capsule instance.
+     *
+     * @return Capsule
+     */
     public function getCapsule(): Capsule
     {
         return $this->capsule;
     }
 
+    /**
+     * Get a connection instance.
+     *
+     * @param string|null $name
+     *
+     * @return Connection
+     */
     public function getConnection(?string $name = null)
     {
         if ($name === null) {
@@ -92,6 +131,11 @@ class Db
         return $this->capsule->getConnection($name);
     }
 
+    /**
+     * Get all connections.
+     *
+     * @return array
+     */
     public function getConnections(): array
     {
         $connections = [];

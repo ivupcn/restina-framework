@@ -16,7 +16,7 @@ Restina是一个免费开源的，快速、简单的面向对象的轻量级PHP�
 * 统一和精简大量用法
 
 
-> Restina的运行环境要求PHP8.4+。
+> Restina的运行环境要求PHP8.0+。
 
 ## 安装
 
@@ -79,7 +79,6 @@ www  WEB部署目录（或者子目录）
 │  ├─Controllers        控制器目录
 │  ├─Filters            过滤器目录
 │  ├─Hooks              Hook目录
-│  ├─Middlewares        中间件目录
 │  ├─Models             模型目录
 │  ├─Views              视图目录
 │  ├─config.php         配置文件

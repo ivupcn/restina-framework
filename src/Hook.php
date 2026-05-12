@@ -3,38 +3,72 @@
 
 namespace Restina;
 
+use InvalidArgumentException;
+
+/**
+ * 钩子类
+ */
 class Hook
 {
     private static array $actions = [];
     private static array $filters = [];
+    private static array $pipes = [];
     private static array $config = [];
-    private static bool $initialized = false; // 添加初始化标志
+    private static bool $initialized = false;
 
     /**
      * 添加动作钩子
      */
     public static function addAction(string $hook, callable $callback, int $priority = 10): void
     {
-        if (!isset(self::$actions[$hook])) {
-            self::$actions[$hook] = [];
+        self::addHookItem('action', $hook, $callback, $priority, self::$actions);
+    }
+
+    /**
+     * 添加过滤器钩子
+     */
+    public static function addFilter(string $hook, callable $callback, int $priority = 10): void
+    {
+        self::addHookItem('filter', $hook, $callback, $priority, self::$filters);
+    }
+
+    /**
+     * 注册一个管道任务（支持 $next 的中间件）
+     * @param string $hook 管道的名称/标识
+     * @param callable $callback 回调函数，必须接收 $payload 和 $next 两个参数
+     * @param int $priority 优先级
+     * @return void
+     */
+    public static function addPipe(string $hook, callable $callback, int $priority = 10): void
+    {
+        self::addHookItem('pipe', $hook, $callback, $priority, self::$pipes);
+    }
+
+    /**
+     * 添加钩子项的通用方法
+     */
+    private static function addHookItem(string $type, string $hook, callable $callback, int $priority, array &$storage): void
+    {
+        if (!isset($storage[$hook])) {
+            $storage[$hook] = [];
         }
 
         // 防止重复注册相同的回调
         $callbackHash = self::getCallbackHash($callback);
-        foreach (self::$actions[$hook] as $existing) {
+        foreach ($storage[$hook] as $existing) {
             if (self::getCallbackHash($existing['callback']) === $callbackHash) {
                 return; // 已存在，不再注册
             }
         }
 
-        self::$actions[$hook][] = [
+        $storage[$hook][] = [
             'callback' => $callback,
             'priority' => $priority
         ];
 
-        // 按优先级排序
-        usort(self::$actions[$hook], function ($a, $b) {
-            return $b['priority'] <=> $a['priority'];
+        // 按优先级升序排序（高优先级先执行）
+        usort($storage[$hook], function ($a, $b) {
+            return $a['priority'] <=> $b['priority'];
         });
     }
 
@@ -44,16 +78,18 @@ class Hook
     private static function getCallbackHash(callable $callback): string
     {
         if (is_array($callback)) {
-            if (is_object($callback[0])) {
-                return spl_object_hash($callback[0]) . '::' . $callback[1];
-            }
-            return $callback[0] . '::' . $callback[1];
+            $class = is_object($callback[0])
+                ? spl_object_hash($callback[0])
+                : $callback[0];
+            return $class . '::' . $callback[1];
         } elseif (is_string($callback)) {
             return $callback;
         } elseif (is_object($callback)) {
             return spl_object_hash($callback);
         }
-        return serialize($callback);
+
+        // 对于闭包等复杂情况，使用MD5序列化
+        return md5(serialize($callback));
     }
 
     /**
@@ -69,34 +105,6 @@ class Hook
     }
 
     /**
-     * 添加过滤器钩子
-     */
-    public static function addFilter(string $hook, callable $callback, int $priority = 10): void
-    {
-        if (!isset(self::$filters[$hook])) {
-            self::$filters[$hook] = [];
-        }
-
-        // 防止重复注册相同的回调
-        $callbackHash = self::getCallbackHash($callback);
-        foreach (self::$filters[$hook] as $existing) {
-            if (self::getCallbackHash($existing['callback']) === $callbackHash) {
-                return; // 已存在，不再注册
-            }
-        }
-
-        self::$filters[$hook][] = [
-            'callback' => $callback,
-            'priority' => $priority
-        ];
-
-        // 按优先级排序
-        usort(self::$filters[$hook], function ($a, $b) {
-            return $b['priority'] <=> $a['priority'];
-        });
-    }
-
-    /**
      * 应用过滤器
      */
     public static function applyFilters(string $hook, mixed $value, ...$args): mixed
@@ -107,6 +115,36 @@ class Hook
             }
         }
         return $value;
+    }
+
+    /**
+     * 执行管道任务（启动洋葱模型）
+     * @param string $hook 管道的名称
+     * @param mixed $payload 传递给中间件的数据（如 Request 对象）
+     * @return mixed 返回最终的处理结果
+     */
+    public static function runPipe(string $hook, $payload)
+    {
+        // 如果没有注册该管道，直接返回 payload
+        if (!isset(self::$pipes[$hook]) || empty(self::$pipes[$hook])) {
+            return $payload;
+        }
+
+        $pipes = self::$pipes[$hook];
+        // 使用 reduce 模式构建中间件链
+        $stack = array_reduce(
+            array_reverse($pipes),
+            function ($next, $pipe) {
+                return function ($payload) use ($pipe, $next) {
+                    return $pipe['callback']($payload, $next);
+                };
+            },
+            function ($payload) {
+                return $payload;
+            }  // 默认终点函数
+        );
+
+        return $stack($payload);
     }
 
     /**
@@ -140,6 +178,21 @@ class Hook
     }
 
     /**
+     * 移除管道钩子
+     */
+    public static function removePipe(string $hook, ?callable $callback = null): void
+    {
+        if ($callback === null) {
+            unset(self::$pipes[$hook]);
+        } elseif (isset(self::$pipes[$hook])) {
+            self::$pipes[$hook] = array_filter(
+                self::$pipes[$hook],
+                fn($pipe) => self::getCallbackHash($pipe['callback']) !== self::getCallbackHash($callback)
+            );
+        }
+    }
+
+    /**
      * 检查是否存在动作钩子
      */
     public static function hasAction(string $hook): bool
@@ -153,6 +206,14 @@ class Hook
     public static function hasFilter(string $hook): bool
     {
         return isset(self::$filters[$hook]) && !empty(self::$filters[$hook]);
+    }
+
+    /**
+     * 检查是否存在管道钩子
+     */
+    public static function hasPipe(string $hook): bool
+    {
+        return isset(self::$pipes[$hook]) && !empty(self::$pipes[$hook]);
     }
 
     /**
@@ -176,7 +237,9 @@ class Hook
      */
     public static function getActions(): array
     {
-        return self::$config['actions'] ?? [];
+        return is_array(self::$config['actions'] ?? [])
+            ? self::$config['actions']
+            : [];
     }
 
     /**
@@ -184,7 +247,19 @@ class Hook
      */
     public static function getFilters(): array
     {
-        return self::$config['filters'] ?? [];
+        return is_array(self::$config['filters'] ?? [])
+            ? self::$config['filters']
+            : [];
+    }
+
+    /**
+     * 获取管道配置
+     */
+    public static function getPipes(): array
+    {
+        return is_array(self::$config['pipes'] ?? [])
+            ? self::$config['pipes']
+            : [];
     }
 
     /**
@@ -202,6 +277,7 @@ class Hook
         self::setConfig($config);
         self::registerActions(self::getActions());
         self::registerFilters(self::getFilters());
+        self::registerPipes(self::getPipes());
     }
 
     /**
@@ -210,47 +286,7 @@ class Hook
     private static function registerActions(array $actions): void
     {
         foreach ($actions as $hook => $handlers) {
-            if (is_callable($handlers)) {
-                // 单个处理函数
-                self::addAction($hook, $handlers);
-            } elseif (is_array($handlers)) {
-                if (isset($handlers[0]) && is_string($handlers[0])) {
-                    // [class, method] 或 [class, method, priority] 格式
-                    self::registerSingleAction($hook, $handlers);
-                } else {
-                    // 多个处理函数
-                    foreach ($handlers as $handler) {
-                        if (is_callable($handler)) {
-                            self::addAction($hook, $handler);
-                        } elseif (is_array($handler) && isset($handler[0])) {
-                            self::registerSingleAction($hook, $handler);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * 注册单个动作钩子
-     */
-    private static function registerSingleAction(string $hook, array $handler): void
-    {
-        $priority = 0;
-        if (isset($handler[2])) {
-            $priority = (int) $handler[2];
-        } elseif (isset($handler[1]) && is_int($handler[1])) {
-            $priority = (int) $handler[1];
-        }
-
-        if (isset($handler[0]) && is_string($handler[0]) && class_exists($handler[0])) {
-            $instance = new $handler[0]();
-            $method = $handler[1];
-            if (is_string($method) && method_exists($instance, $method)) {
-                self::addAction($hook, [$instance, $method], $priority);
-            }
-        } elseif (is_callable($handler)) {
-            self::addAction($hook, $handler, $priority);
+            self::registerMultipleHandlers($hook, $handlers, [self::class, 'addAction']);
         }
     }
 
@@ -260,21 +296,39 @@ class Hook
     private static function registerFilters(array $filters): void
     {
         foreach ($filters as $hook => $handlers) {
-            if (is_callable($handlers)) {
-                // 单个处理函数
-                self::addFilter($hook, $handlers);
-            } elseif (is_array($handlers)) {
-                if (isset($handlers[0]) && is_string($handlers[0])) {
-                    // [class, method] 或 [class, method, priority] 格式
-                    self::registerSingleFilter($hook, $handlers);
-                } else {
-                    // 多个处理函数
-                    foreach ($handlers as $handler) {
-                        if (is_callable($handler)) {
-                            self::addFilter($hook, $handler);
-                        } elseif (is_array($handler) && isset($handler[0])) {
-                            self::registerSingleFilter($hook, $handler);
-                        }
+            self::registerMultipleHandlers($hook, $handlers, [self::class, 'addFilter']);
+        }
+    }
+
+    /**
+     * 批量注册管道钩子
+     */
+    private static function registerPipes(array $pipes): void
+    {
+        foreach ($pipes as $hook => $handlers) {
+            self::registerMultipleHandlers($hook, $handlers, [self::class, 'addPipe']);
+        }
+    }
+
+    /**
+     * 通用的处理器注册方法
+     */
+    private static function registerMultipleHandlers(string $hook, $handlers, callable $registrationFunction): void
+    {
+        if (is_callable($handlers)) {
+            // 单个处理函数
+            $registrationFunction($hook, $handlers);
+        } elseif (is_array($handlers)) {
+            if (isset($handlers[0]) && is_string($handlers[0])) {
+                // [class, method] 或 [class, method, priority] 格式
+                self::registerSingleHandler($hook, $handlers, $registrationFunction);
+            } else {
+                // 多个处理函数
+                foreach ($handlers as $handler) {
+                    if (is_callable($handler)) {
+                        $registrationFunction($hook, $handler);
+                    } elseif (is_array($handler) && isset($handler[0])) {
+                        self::registerSingleHandler($hook, $handler, $registrationFunction);
                     }
                 }
             }
@@ -282,9 +336,9 @@ class Hook
     }
 
     /**
-     * 注册单个过滤器钩子
+     * 注册单个处理器
      */
-    private static function registerSingleFilter(string $hook, array $handler): void
+    private static function registerSingleHandler(string $hook, array $handler, callable $registrationFunction): void
     {
         $priority = 0;
         if (isset($handler[2])) {
@@ -297,10 +351,10 @@ class Hook
             $instance = new $handler[0]();
             $method = $handler[1];
             if (is_string($method) && method_exists($instance, $method)) {
-                self::addFilter($hook, [$instance, $method], $priority);
+                $registrationFunction($hook, [$instance, $method], $priority);
             }
         } elseif (is_callable($handler)) {
-            self::addFilter($hook, $handler, $priority);
+            $registrationFunction($hook, $handler, $priority);
         }
     }
 
@@ -311,7 +365,29 @@ class Hook
     {
         self::$actions = [];
         self::$filters = [];
+        self::$pipes = [];
         self::$config = [];
         self::$initialized = false;
+    }
+
+    /**
+     * 获取钩子信息（用于调试）
+     */
+    public static function getHookInfo(?string $type = null): array
+    {
+        switch ($type) {
+            case 'action':
+                return self::$actions;
+            case 'filter':
+                return self::$filters;
+            case 'pipe':
+                return self::$pipes;
+            default:
+                return [
+                    'actions' => self::$actions,
+                    'filters' => self::$filters,
+                    'pipes' => self::$pipes
+                ];
+        }
     }
 }

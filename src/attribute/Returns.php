@@ -22,6 +22,11 @@ class Returns
     public string $type;
 
     /**
+     * 是否全局替换
+     */
+    public bool $replaceGlobal = false;
+
+    /**
      * 是否动态返回参数（即根据实际返回数据动态生成文档）
      */
     public bool $dynamic = false;
@@ -45,8 +50,9 @@ class Returns
      * @param bool $dynamic 是否动态返回参数
      * @param string $dynamicDescription 动态返回参数描述
      * @param array $children 子参数列表
+     * @param bool $replaceGlobal 是否全局替换参数
      */
-    public function __construct(string $field = '', string $title = '', string $type = '', bool $dynamic = false, string $dynamicDescription = '', array $children = [])
+    public function __construct(string $field = '', string $title = '', string $type = '', bool $dynamic = false, string $dynamicDescription = '', array $children = [], bool $replaceGlobal = false)
     {
         $this->field = $field;
         $this->title = $title;
@@ -54,5 +60,6 @@ class Returns
         $this->dynamic = $dynamic;
         $this->dynamicDescription = $dynamicDescription;
         $this->children = $children;
+        $this->replaceGlobal = $replaceGlobal;
     }
 }
