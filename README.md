@@ -1,6 +1,6 @@
 # Restina Framework
 
-一个基于 Slim 框架和 Eloquent ORM 构建的轻量级 PHP 框架，用于快速开发 API。
+一个轻量级 PHP 框架，用于快速开发 API。
 
 Restina是一个免费开源的，快速、简单的面向对象的轻量级PHP开发框架，是为了敏捷WEB应用开发和简化应用开发而诞生的。Restina秉承简洁实用的设计原则，在保持出色的性能和至简代码的同时，更注重易用性。遵循Apache2开源许可协议发布，意味着你可以免费使用Restina，甚至允许把你基于Restina开发的应用开源或商业产品发布/销售。
 
@@ -82,8 +82,7 @@ www  WEB部署目录（或者子目录）
 │  ├─Models             模型目录
 │  ├─Views              视图目录
 │  ├─config.php         配置文件
-│  ├─hooks.php          钩子配置文件
-│  └─middlewares.php    中间件配置文件
+│  └─hooks.php          钩子配置文件
 │
 ├─public                WEB目录（对外访问目录）
 │  ├─index.php          入口文件
@@ -138,7 +137,6 @@ www  WEB部署目录（或者子目录）
 * 注册自定义服务
 * 启动服务
 * 注册控制器
-* 注册中间件
 * 启动控制器
 
 ## 入口文件
@@ -152,7 +150,7 @@ Restina采用单一入口模式进行项目部署和访问，一个应用都有�
 // public/index.php
 require_once __DIR__ . '/../vendor/autoload.php';
 use Restina\App;
-$app = App::init()->boot()->run();
+App::init()->boot()->run()->end();
 ~~~
 
 > 如果你没有特殊的自定义需求，无需对入口文件做任何的更改。
@@ -162,16 +160,12 @@ $app = App::init()->boot()->run();
 
 Restina的URL访问受路由影响。
 
-框架扫描每个类的每个方法，如果方法标记了@route，将被自动添加为路由。
+框架扫描每个类的每个方法注解，如果方法标记了 #[Route()]，将被自动添加为路由。
 
 ~~~
 class DemoController
 {
-    /**
-     * 获取用户列表
-     * 
-     * @route GET /demo/getUsers
-     */
+     #[Route(methods: ['GET'], path: '/demo/getUsers', code: 'demo.getUsers', permission: false, jwt: false, autoRefreshToken: true)]
     public function getUsers(int $page = 1, int $limit = 10, string $sort = 'id', string $search = '')
 }
 ~~~
@@ -179,9 +173,9 @@ class DemoController
 
 标注在类的注释里，用于指定 Controller 类中所定义的全部接口的uri 的 path。
 
-语法：` @route <method> <uri>`
+语法：` #[Route(methods: <method>, path: <path>, code: <code>, permission: <permission>, jwt: <jwt>, autoRefreshToken: <autoRefreshToken>)]`
 
-标注在方法的注释里，用于指定接口的路由。method为指定的 http 方法，可以是 GET、HEAD、POST、PUT、PATCH、DELETE、OPTION、DELETE。uri 中可以带变量，用{}包围。
+标注在方法的注释里，用于指定接口的路由。methods为指定的 http 方法，可以是 GET、HEAD、POST、PUT、PATCH、DELETE、OPTION、DELETE。uri 中可以带变量，用{}包围。
 
 ## 参数绑定
 
@@ -196,11 +190,7 @@ class DemoController
 ~~~
 class DemoController
 {
-    /**
-     * 获取用户列表
-     * 
-     * @route GET /demo/getUsers
-     */
+    #[Route(methods: ['GET'], path: '/demo/getUsers', code: 'demo.getUsers', permission: false, jwt: false, autoRefreshToken: true)]
     public function getUsers(int $page = 1, int $limit = 10, string $sort = 'id', string $search = '')
 }
 ~~~
@@ -212,15 +202,11 @@ class DemoController
 如果在方法的注释中，标注了 @param，就会有用 @param 的绑定信息覆盖默认来自函数定义的绑定信息。@param 可以指定变量的类型，而原函数定义中只能在参数是数组或者对象时才能指定类型。@param 的语法为标准 PHP Document 的语法。
 
 ~~~
-/**
-     * 获取用户列表
-     * 
-     * @route GET /demo/getUsers
-     * @param int $page 页码
-     * @param int $limit 分页大小
-     * @param string $sort
-     * @param string $search
-     */
+     #[Route(methods: ['GET'], path: '/demo/getUsers', code: 'demo.getUsers', permission: false, jwt: false, autoRefreshToken: true)]
+     #[Params(field: 'page', title: '页码', type: FieldType::INTEGER)]
+     #[Params(field: 'limit', title: '分页大小', type: FieldType::INTEGER)]
+     #[Params(field: 'sort', title: '排序字段', type: FieldType::STRING)]
+     #[Params(field: 'search', title: '搜索内容', type: FieldType::STRING)]
     public function getUsers(int $page = 1, int $limit = 10, string $sort = 'id', string $search = '')
 ~~~
 
@@ -236,14 +222,11 @@ class DemoController
 
 ~~~
 /**
-     * 获取用户列表
-     * 
-     * @route GET /demo/getUsers
-     * @param int $page 页码 {@v min:1|integer|required}
-     * @param int $limit 分页大小 {@v min:1|max:100|integer|required}
-     * @param string $sort {@v in:id,name,email|optional}
-     * @param string $search {@v lengthMax:50|optional}
-     */
+     #[Route(methods: ['GET'], path: '/demo/getUsers', code: 'demo.getUsers', permission: false, jwt: false, autoRefreshToken: true)]
+     #[Params(field: 'page', title: '页码', type: FieldType::INTEGER, rules: 'min:1|integer|required')]
+     #[Params(field: 'limit', title: '分页大小', type: FieldType::INTEGER, rules: 'min:1|max:100|integer|required')]
+     #[Params(field: 'sort', title: '排序字段', type: FieldType::STRING, rules: 'in:id,name,email|optional')]
+     #[Params(field: 'search', title: '搜索内容', type: FieldType::STRING, rules: 'lengthMax:50|optional')]
     public function getUsers(int $page = 1, int $limit = 10, string $sort = 'id', string $search = '')
 ~~~
 
