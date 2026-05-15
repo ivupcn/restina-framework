@@ -136,7 +136,7 @@ class Attribute
                 }
             }
         } catch (\Exception $e) {
-            error_log("Error scanning directory: " . $e->getMessage());
+            error_log("目录扫描错误: " . $e->getMessage());
         }
         return $classes;
     }

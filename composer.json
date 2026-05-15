@@ -1,8 +1,8 @@
 {
     "name": "ivupcn/restina",
-    "description": "A lightweight PHP framework based on Slim and Eloquent ORM",
+    "description": "A lightweight PHP framework",
     "type": "library",
-    "keywords": ["framework", "api", "rest", "slim", "eloquent", "orm"],
+    "keywords": ["framework", "api", "rest", "eloquent", "orm"],
     "license": "Apache-2.0",
     "authors": [
         {
@@ -19,10 +19,8 @@
     "require": {
         "php": "^8.0",
         "nyholm/psr7": "^1.8",
-        "slim/slim": "^4.15",
-        "slim/psr7": "^1.8",
+        "psr/log": "^3.0.0",
         "php-di/php-di": "^7.1",
-        "php-di/slim-bridge": "^3.4",
         "psr/http-message": "^1.0 || ^2.0",
         "illuminate/database": "^12.49",
         "illuminate/events": "^12.49",

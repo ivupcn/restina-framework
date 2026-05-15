@@ -4,6 +4,7 @@
 namespace Restina;
 
 use Psr\Http\Message\ServerRequestInterface;
+use Restina\Response;
 use Restina\Request;
 use Restina\Hook;
 
@@ -302,20 +303,20 @@ class Router
     /**
      * 运行路由
      * @param ServerRequestInterface|null $request 请求对象
-     * @return mixed
+     * @return Response
      * @throws \Exception
      */
-    public function dispatch(?ServerRequestInterface $request = null): mixed
+    public function dispatch(?ServerRequestInterface $request = null): Response
     {
+        // 如果Trie树未构建，则构建它
+        if ($this->trieRoot === null) {
+            $this->buildTrie();
+        }
         if (!$request) {
             $request = Request::createFromGlobals();
         }
         $requestMethod = $request->getMethod();
         $requestUri = $request->getUri()->getPath();
-        // 如果Trie树未构建，则构建它
-        if ($this->trieRoot === null) {
-            $this->buildTrie();
-        }
         // 解析请求URI为段
         $requestSegments = $this->parseRequestUriToSegments($requestUri);
         // 在Trie树中搜索匹配的路由
@@ -333,7 +334,11 @@ class Router
                     $allowedMethods = array_merge($allowedMethods, $route['methods']);
                 }
             }
-            if ($matchedRoute) {
+            if ($requestMethod === 'OPTIONS') {
+                return Response::create()
+                    ->withStatus(204)
+                    ->withHeader('Allow', $allowedMethodsList);
+            } elseif ($matchedRoute) {
                 // 注入参数
                 foreach ($params as $key => $value) {
                     $request = $request->withAttribute($key, $value);
@@ -345,20 +350,17 @@ class Router
                         return $middleware($request, $next);
                     }, 10 + $index);
                 }
-                return Hook::runPipe($pipeName, function () use ($matchedRoute, $request) {
-                    return call_user_func($matchedRoute['handler'], $request);
+                return Hook::runPipe($pipeName, function () use ($matchedRoute, $request, $params) {
+                    return call_user_func($matchedRoute['handler'], $request, $params);
                 });
             } else {
                 // 路径存在但方法不允许
                 $allowedMethodsList = implode(', ', array_unique($allowedMethods));
-                if ($requestMethod === 'OPTIONS') {
-                    return null;
-                }
-                throw new \Exception('Method Not Allowed. Must be one of: ' . $allowedMethodsList, 405);
+                throw new \Exception('请求方法不被允许。必须使用 ' . $allowedMethodsList . ' 方法', 405);
             }
         } else {
             // 未找到路径 (404)
-            throw new \Exception('Not Found', 404);
+            throw new \Exception('您访问的资源不存在', 410);
         }
     }
 
@@ -468,7 +470,7 @@ class Router
      * @param string $requestUri
      * @return array|false 匹配成功返回参数数组，失败返回 false
      */
-    private function matchPath(string $routePath, string $requestUri): array|false
+    public function matchPath(string $routePath, string $requestUri): array|false
     {
         // 将 {param} 或 {param:[0-9]+} 替换为正则命名捕获组
         $pattern = preg_replace_callback('/\{([a-zA-Z0-9_]+)(?::([^}]+))?\}/', function ($matches) {
@@ -515,7 +517,7 @@ class Router
 
         // 3. 安全检查
         if ($this->trieRoot === null) {
-            throw new \Exception('Failed to build Trie tree. The root node is null.', 500);
+            throw new \Exception('构建 Trie 树失败。根节点为空（null）.', 500);
         }
 
         // 4. 返回构建好的树结构

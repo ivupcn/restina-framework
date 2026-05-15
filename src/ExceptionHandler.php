@@ -8,35 +8,50 @@ use Psr\Log\LoggerInterface;
 use Restina\Response;
 use Throwable;
 
+/**
+ * Handles exceptions
+ */
 class ExceptionHandler
 {
+    // 注入日志接口
     private LoggerInterface $logger;
+    // 运行时环境
     private bool $debug;
 
+    /**
+     * 构造函数
+     *
+     * @param LoggerInterface $logger 日志接口
+     * @param bool $debug 是否为调试模式
+     */
     public function __construct(LoggerInterface $logger, bool $debug = false)
     {
         $this->logger = $logger;
         $this->debug = $debug;
     }
 
+
     /**
-     * Handle an exception and return appropriate response
+     * 异常处理
+     *
+     * @param ServerRequestInterface $request 请求对象
+     * @param Throwable $exception 异常对象
+     * @return ResponseInterface 响应对象
      */
-    public function handle(
-        ServerRequestInterface $request,
-        Throwable $exception
-    ): Response {
-        // Log the exception
+    public function handle(ServerRequestInterface $request, Throwable $exception): Response
+    {
         $this->logException($exception);
-
-        // Create response based on exception type
-        $response = $this->createResponse($exception);
-
-        return $response;
+        return Response::error(
+            message: $exception->getMessage(),
+            status: $exception->getCode(),
+            details: $this->getErrorDetails($exception)
+        );
     }
 
     /**
-     * Log exception details
+     * 记录异常
+     *
+     * @param Throwable $exception 异常对象
      */
     private function logException(Throwable $exception): void
     {
@@ -48,81 +63,14 @@ class ExceptionHandler
             'trace' => $exception->getTraceAsString(),
         ];
 
-        $this->logger->error('Unhandled exception occurred', $context);
+        $this->logger->log('error', '发生异常错误', $context);
     }
 
     /**
-     * Create appropriate response based on exception
-     */
-    private function createResponse(Throwable $exception): Response
-    {
-        // Set status code based on exception type
-        $statusCode = $this->getStatusCode($exception);
-
-        // Create response body
-        $body = $this->createResponseBody($exception, $statusCode);
-
-        // Use your framework's Response class to create JSON response
-        return Response::error(
-            message: $exception->getMessage(),
-            status: $statusCode,
-            details: $this->getErrorDetails($exception)
-        );
-    }
-
-    /**
-     * Determine status code from exception
-     */
-    private function getStatusCode(Throwable $exception): int
-    {
-        // If it's a custom framework exception with specific codes
-        if (method_exists($exception, 'getStatusCode')) {
-            return $exception->getStatusCode();
-        }
-
-        // Map common exceptions to appropriate status codes
-        switch (true) {
-            case $exception instanceof \InvalidArgumentException:
-                return 400; // Bad Request
-            case $exception instanceof \OutOfBoundsException:
-                return 404; // Not Found
-            case $exception instanceof \DomainException:
-                return 403; // Forbidden
-            case $exception instanceof \RuntimeException:
-                return 501; // Not Implemented
-            default:
-                return 500; // Internal Server Error
-        }
-    }
-
-    /**
-     * Create response body based on exception details
-     */
-    private function createResponseBody(Throwable $exception, int $statusCode): array
-    {
-        $body = [
-            'success' => false,
-            'error' => [
-                'type' => get_class($exception),
-                'message' => $exception->getMessage(),
-                'code' => $statusCode,
-            ]
-        ];
-
-        // Include additional debug information in development mode
-        if ($this->debug) {
-            $body['error']['details'] = [
-                'file' => $exception->getFile(),
-                'line' => $exception->getLine(),
-                'trace' => explode("\n", $exception->getTraceAsString()),
-            ];
-        }
-
-        return $body;
-    }
-
-    /**
-     * Get error details based on debug mode
+     * 获取错误详情
+     *
+     * @param Throwable $exception 异常对象
+     * @return array 响应体数据
      */
     private function getErrorDetails(Throwable $exception): array
     {
@@ -133,7 +81,6 @@ class ExceptionHandler
                 'trace' => explode("\n", $exception->getTraceAsString()),
             ];
         }
-
         return [];
     }
 }

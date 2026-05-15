@@ -3,7 +3,6 @@
 
 namespace Restina;
 
-use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Nyholm\Psr7\Response as BaseResponse;
 use Nyholm\Psr7\Stream;
@@ -141,12 +140,30 @@ class Response extends BaseResponse
         $encodedData = json_encode($data, $encodingOptions);
 
         if ($encodedData === false) {
-            throw new \JsonException('JSON encoding failed: ' . json_last_error_msg());
+            throw new \JsonException('JSON 编码失败: ' . json_last_error_msg());
         }
 
         $headers = array_merge(['Content-Type' => 'application/json'], $headers);
 
         return new static($status, $headers, $encodedData);
+    }
+
+    /**
+     * 创建JSON响应实例
+     *
+     * @param mixed $data 响应数据
+     * @param int $status HTTP状态码
+     * @param array $headers 额外的HTTP头
+     * @param int $encodingOptions JSON编码选项
+     * @return static
+     */
+    public function withJson(
+        mixed $data,
+        int $status = 200,
+        array $headers = [],
+        int $encodingOptions = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+    ): static {
+        return self::json($data, $status, $headers, $encodingOptions);
     }
 
     /**
@@ -160,8 +177,20 @@ class Response extends BaseResponse
     public static function html(string $html, int $status = 200, array $headers = []): static
     {
         $headers = array_merge(['Content-Type' => 'text/html; charset=utf-8'], $headers);
-
         return new static($status, $headers, $html);
+    }
+
+    /**
+     * 创建HTML响应实例
+     *
+     * @param string $html HTML内容
+     * @param int $status HTTP状态码
+     * @param array $headers 额外的HTTP头
+     * @return static
+     */
+    public function withHtml(string $html, int $status = 200, array $headers = []): static
+    {
+        return self::html($html, $status, $headers);
     }
 
     /**
@@ -180,6 +209,19 @@ class Response extends BaseResponse
     }
 
     /**
+     * 创建文本响应实例
+     *
+     * @param string $text 文本内容
+     * @param int $status HTTP状态码
+     * @param array $headers 额外的HTTP头
+     * @return static
+     */
+    public function withText(string $text, int $status = 200, array $headers = []): static
+    {
+        return self::text($text, $status, $headers);
+    }
+
+    /**
      * 创建重定向响应
      *
      * @param string $url 重定向URL
@@ -195,6 +237,19 @@ class Response extends BaseResponse
     }
 
     /**
+     * 创建重定向响应实例
+     *
+     * @param string $url 重定向URL
+     * @param int $status HTTP状态码，默认302
+     * @param array $headers 额外的HTTP头
+     * @return static
+     */
+    public function withRedirect(string $url, int $status = 302, array $headers = []): static
+    {
+        return self::redirect($url, $status, $headers);
+    }
+
+    /**
      * 创建文件下载响应
      *
      * @param string $filePath 文件路径
@@ -202,14 +257,14 @@ class Response extends BaseResponse
      * @param array $headers 额外的HTTP头
      * @return static
      */
-    public static function download(string $filePath, string $fileName = null, array $headers = []): static
+    public static function download(string $filePath, string|null $fileName = null, array $headers = []): static
     {
         if (!file_exists($filePath)) {
-            throw new \InvalidArgumentException("File does not exist: {$filePath}");
+            throw new \InvalidArgumentException("文件不存在: {$filePath}");
         }
 
         if (!is_readable($filePath)) {
-            throw new \InvalidArgumentException("File is not readable: {$filePath}");
+            throw new \InvalidArgumentException("文件不可读: {$filePath}");
         }
 
         $fileSize = filesize($filePath);
@@ -227,6 +282,19 @@ class Response extends BaseResponse
         $fileStream = Stream::create(fopen($filePath, 'rb'));
 
         return new static(200, $headers, $fileStream);
+    }
+
+    /**
+     * 创建文件下载响应实例
+     *
+     * @param string $filePath 文件路径
+     * @param string|null $fileName 下载时的文件名
+     * @param array $headers 额外的HTTP头
+     * @return static
+     */
+    public function withDownload(string $filePath, string|null $fileName = null, array $headers = []): static
+    {
+        return self::download($filePath, $fileName, $headers);
     }
 
     /**
@@ -248,13 +316,33 @@ class Response extends BaseResponse
     ): static {
         $responseData = [
             'success' => $status < 400,
-            'status' => $status,
+            'code' => $status,
             'message' => $message,
             'data' => $data,
             'timestamp' => date('c')
         ];
 
         return self::json($responseData, $status, $headers, $encodingOptions);
+    }
+
+    /**
+     * 创建API响应实例（遵循RESTful API标准）
+     *
+     * @param mixed $data 响应数据
+     * @param int $status HTTP状态码
+     * @param string $message 状态消息
+     * @param array $headers 额外的HTTP头
+     * @param int $encodingOptions JSON编码选项
+     * @return static
+     */
+    public function withApi(
+        mixed $data,
+        int $status = 200,
+        string $message = 'Success',
+        array $headers = [],
+        int $encodingOptions = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+    ): static {
+        return self::json($data, $status, $message, $headers, $encodingOptions);
     }
 
     /**
@@ -276,13 +364,33 @@ class Response extends BaseResponse
     ): static {
         $errorData = [
             'success' => false,
-            'status' => $status,
+            'code' => $status,
             'message' => $message,
             'error' => $details,
             'timestamp' => date('c')
         ];
 
         return self::json($errorData, $status, $headers, $encodingOptions);
+    }
+
+    /**
+     * 添加204 No Content响应方法
+     * @param array $headers
+     * @return static
+     */
+    public static function noContent(array $headers = []): static
+    {
+        return new static(204, $headers);
+    }
+
+    /**
+     * 添加204 No Content响应实例方法
+     * @param array $headers
+     * @return static
+     */
+    public function withNoContent(array $headers = []): static
+    {
+        return self::noContent($headers);
     }
 
     /**
@@ -363,7 +471,57 @@ class Response extends BaseResponse
     public function withStatus($code, $reasonPhrase = ''): static
     {
         $new = clone $this;
-        $new->response = $this->response->withStatus($code, $reasonPhrase ?: self::getReasonPhraseFor($code));
-        return $new;
+        $reasonPhrase = $reasonPhrase ?: self::getReasonPhraseFor($code);
+        return parent::withStatus($code, $reasonPhrase);
+    }
+
+    /**
+     * 完整发送HTTP响应
+     * 
+     * @return static 返回自身实例以便链式调用
+     */
+    public function send()
+    {
+        try {
+            // 防止重复发送
+            if (headers_sent()) {
+                throw new \RuntimeException('Headers 已发送');
+            }
+
+            // 设置响应状态
+            http_response_code($this->getStatusCode());
+
+            // 发送响应头
+            foreach ($this->getHeaders() as $name => $values) {
+                $first = true;
+                foreach ($values as $value) {
+                    header(sprintf('%s: %s', $name, $value), $first);
+                    $first = false; // 对于同名头部，后续设置需为false
+                }
+            }
+
+            // 输出响应体
+            $body = $this->getBody();
+            $body->rewind();
+
+            // 分块读取并输出响应体
+            while (!$body->eof()) {
+                echo $body->read(8192);
+                flush(); // 刷新输出缓冲区
+            }
+
+            return $this;
+        } catch (\Throwable $e) {
+            // 记录错误日志
+            error_log("Response send error: " . $e->getMessage());
+
+            // 如果头部未发送，发送500错误
+            if (!headers_sent()) {
+                http_response_code(500);
+                echo "Internal Server Error";
+            }
+
+            throw $e; // 重新抛出异常
+        }
     }
 }

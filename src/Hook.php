@@ -127,6 +127,9 @@ class Hook
     {
         // 如果没有注册该管道，直接返回 payload
         if (!isset(self::$pipes[$hook]) || empty(self::$pipes[$hook])) {
+            if (is_callable($payload)) {
+                return $payload(); // 执行闭包
+            }
             return $payload;
         }
 

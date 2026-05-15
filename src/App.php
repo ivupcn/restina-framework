@@ -9,11 +9,13 @@ use SplFileInfo;
 use Restina\Hook;
 use Restina\Container;
 use Restina\Db;
-use Restina\Middleware;
 use Restina\Jwt;
 use Restina\Attribute;
 use Restina\Router;
 use Restina\ExceptionHandler;
+use Restina\Logger;
+use Restina\Response;
+use Restina\Http;
 
 /**
  * @author 飞翔的蓝 <ivup@ivup.cn>
@@ -23,11 +25,14 @@ use Restina\ExceptionHandler;
  * @property \Restina\Jwt $jwt
  * @property \Restina\Attribute $attribute
  * @property \Restina\Router $router
+ * @property \Restina\Logger $logger
+ * @property \Restina\Response $response
+ * @property \Restina\Http $http
  */
 class App
 {
     private static ?self $instance = null;
-    private Controller $controller;
+    private Http $http;
     private Container $diContainer;
     private Config $config;
     private Cache $cache;
@@ -35,6 +40,8 @@ class App
     private Jwt $jwt;
     private Attribute $attribute;
     private Router $router;
+    private Logger $logger;
+    private Response $response;
     private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
@@ -42,6 +49,7 @@ class App
     private string $appPath;
     private string $viewPath;
     private string $runtimePath;
+    private string $logPath;
     private array $serviceProviders = [];
     private bool $registered = false;
     private bool $bootstrapped = false;
@@ -56,6 +64,8 @@ class App
         'jwt' => Jwt::class,
         'attribute' => Attribute::class,
         'router' => Router::class,
+        'logger' => Logger::class,
+        'response' => Response::class,
     ];
 
     /**
@@ -108,7 +118,7 @@ class App
         // 属性不存在时抛出异常
         throw new \OutOfBoundsException(
             sprintf(
-                "Property '%s' does not exist or is not accessible through the container.",
+                "属性 '%s' 不存在，或者无法通过容器访问。",
                 $property
             )
         );
@@ -164,23 +174,31 @@ class App
     /**
      * 运行应用
      */
-    public function run(): void
+    public function run(): self
     {
         try {
-            // 自动加载控制器
-            $this->setupControllers();
-            $this->setupMiddlewares();
+            // 从控制器注解中提取路由规则并完成注册
+            $this->registerRoutesFromAttributes();
             Hook::doAction('app.started', $this);
+            // 启动路由
             $this->router->dispatch();
         } catch (\Throwable $e) {
-            error_log($e->getMessage());
-            if ($this->isDebugMode) {
-                throw $e;
-            }
+            $this->processError($e);
         } finally {
-            // Terminate 阶段
-            $this->terminate();
+            return $this;
         }
+    }
+
+    /**
+     * 终止阶段
+     */
+    public function end(): void
+    {
+        // 清理资源
+        if ($this->cache && $this->cache->isUsingRedis()) {
+            $this->cache->close();
+        }
+        $this->logger->write();
     }
 
     /**
@@ -291,6 +309,7 @@ class App
         $this->runtimePath = $this->rootPath . DIRECTORY_SEPARATOR . 'runtime';
         $this->viewPath = $this->appPath . DIRECTORY_SEPARATOR . 'views';
         $this->cachePath = $this->runtimePath . DIRECTORY_SEPARATOR . 'cache';
+        $this->logPath = $this->runtimePath . DIRECTORY_SEPARATOR . 'logs';
     }
 
     /**
@@ -316,14 +335,11 @@ class App
     private function setDebugMode(): self
     {
         $this->isDebugMode = $this->config->get('app.debug', false);
-        // 添加错误处理中间件
-        // $errorMiddleware = $this->slimApp->addErrorMiddleware($this->isDebugMode, true, true);
-        // $defaultErrorHandler = $errorMiddleware->getDefaultErrorHandler();
-        // $defaultErrorHandler->forceContentType('application/json');
-        // $defaultErrorHandler->registerErrorRenderer(
-        //     'application/json',
-        //     ExceptionHandler::class
-        // );
+        // 注册全局异常处理器
+        set_exception_handler([$this, 'handleUncaughtException']);
+
+        // 注册PHP错误处理器
+        set_error_handler([$this, 'handlePhpError']);
         return $this;
     }
 
@@ -351,6 +367,8 @@ class App
         }
         // 创建依赖注入容器
         $this->diContainer = new Container();
+        // 创建响应实例
+        $this->response = new Response();
         // 创建缓存实例
         $this->cache = new Cache($this->config, $this->cachePath);
         // 创建数据库实例
@@ -361,6 +379,8 @@ class App
         $this->attribute = new Attribute($this->appPath . DIRECTORY_SEPARATOR . 'Controllers');
         // 创建路由实例
         $this->router = new Router();
+        // 创建日志实例
+        $this->logger = new Logger($this->logPath);
         // 将核心服务绑定到容器
         $this->bindCoreServicesToContainer();
         $this->registered = true;
@@ -382,14 +402,15 @@ class App
      */
     private function bindCoreServicesToContainer(): void
     {
-        $this->diContainer->set(static::class, $this);
         $this->diContainer->set(self::class, $this);
         $this->diContainer->set(Config::class, $this->config);
+        $this->diContainer->set(Response::class, $this->response);
         $this->diContainer->set(Cache::class, $this->cache);
         $this->diContainer->set(Db::class, $this->db);
         $this->diContainer->set(Jwt::class, $this->jwt);
         $this->diContainer->set(Attribute::class, $this->attribute);
         $this->diContainer->set(Router::class, $this->router);
+        $this->diContainer->set(Logger::class, $this->logger);
     }
 
     /**
@@ -401,30 +422,14 @@ class App
             $instance = $this->make($provider);
             $instance->boot($this);
         }
-        $this->controller = new Controller($this, $this->diContainer);
+        $this->http = new Http($this, $this->diContainer);
         Hook::doAction('app.bootstrap', $this);
     }
 
     /**
-     * 终止阶段
+     * 从控制器注解中提取路由规则并完成注册
      */
-    private function terminate(): void
-    {
-        // 清理资源
-        if ($this->cache && $this->cache->isUsingRedis()) {
-            $this->cache->close();
-        }
-    }
-
-    // 中间件设置
-    private function setupMiddlewares(): void
-    {
-        // $manager = new Middleware($this->slimApp, $this->diContainer, $this->isDebugMode, $this);
-        // $manager->registerMiddlewares($this->appPath);
-    }
-
-    // 控制器设置
-    private function setupControllers(): void
+    private function registerRoutesFromAttributes(): void
     {
         if ($this->isDebugMode) {
             $routes = $this->attribute->getRouteCollector();
@@ -433,11 +438,41 @@ class App
             $routesKey = 'routes';
             $routes = $this->cache->get($routesKey);
             if (empty($routes)) {
-                $doc = $this->attribute->getRouteCollector();
+                $routes = $this->attribute->getRouteCollector();
                 // 缓存路由信息（24小时）
                 $this->cache->set($routesKey, $routes, 86400);
             }
         }
-        $this->controller->loadRoutes($routes);
+        $this->http->registerRoutes($routes);
+    }
+
+    /**
+     * 处理错误
+     */
+    private function processError(\Throwable $exception): void
+    {
+        // 使用自定义异常处理器
+        $handler = new ExceptionHandler($this->logger, $this->isDebugMode);
+
+        $response = $handler->handle(Request::createFromGlobals(), $exception);
+        $response->send();
+    }
+
+    /**
+     * 处理未捕获的异常
+     */
+    public function handleUncaughtException(\Throwable $exception): void
+    {
+        $this->processError($exception);
+    }
+
+    /**
+     * 处理PHP错误
+     */
+    public function handlePhpError(int $errno, string $errstr, string $errfile, int $errline): bool
+    {
+        $error = new \ErrorException($errstr, $errno, $errno, $errfile, $errline);
+        $this->processError($error);
+        return true; // 不执行PHP内部错误处理器
     }
 }
