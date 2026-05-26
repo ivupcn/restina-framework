@@ -17,11 +17,11 @@
         "source": "https://github.com/ivupcn/restina-framework"
     },
     "require": {
-        "php": "^8.0",
+        "php": "^8.4",
         "nyholm/psr7": "^1.8",
         "psr/log": "^3.0.0",
         "php-di/php-di": "^7.1",
-        "psr/http-message": "^1.0 || ^2.0",
+        "psr/http-message": "^2.0",
         "illuminate/database": "^12.49",
         "illuminate/events": "^12.49",
         "firebase/php-jwt": "^7.0"
