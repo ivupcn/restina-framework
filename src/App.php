@@ -16,6 +16,9 @@ use Restina\ExceptionHandler;
 use Restina\Logger;
 use Restina\Response;
 use Restina\Http;
+use Restina\Cache;
+use Restina\Config;
+use Restina\Console\CommandRegistry;
 
 /**
  * @author 飞翔的蓝 <ivup@ivup.cn>
@@ -42,6 +45,7 @@ class App
     private Router $router;
     private Logger $logger;
     private Response $response;
+    private CommandRegistry $commandRegistry;
     private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
@@ -53,6 +57,7 @@ class App
     private array $serviceProviders = [];
     private bool $registered = false;
     private bool $bootstrapped = false;
+    private bool $isWorkerMode = false;
 
     /**
      * 服务名称映射表 - 将别名映射到实际类名
@@ -71,10 +76,10 @@ class App
     /**
      * 静态工厂方法
      */
-    public static function init(array $options = []): self
+    public static function init(): self
     {
         if (self::$instance === null) {
-            self::$instance = new static($options);
+            self::$instance = new static();
         }
 
         return self::$instance;
@@ -91,7 +96,7 @@ class App
     /**
      * 构造函数
      */
-    public function __construct(array $options = [])
+    public function __construct()
     {
         // 初始化路径
         $this->initializePaths();
@@ -135,15 +140,26 @@ class App
             if ($this->diContainer->isInstantiated($property)) {
                 return true;
             }
-
             // 检查服务名称映射
             if (isset(self::SERVICE_NAME_MAP[$property])) {
                 $serviceClass = self::SERVICE_NAME_MAP[$property];
                 return $this->diContainer->isInstantiated($serviceClass);
             }
         }
-
         return false;
+    }
+
+
+    /**
+     * 设置运行模式
+     *
+     * @param bool $isWorkerMode
+     * @return $this
+     */
+    public function setIsWorkerMode(bool $isWorkerMode): self
+    {
+        $this->isWorkerMode = $isWorkerMode;
+        return $this;
     }
 
     /**
@@ -180,8 +196,13 @@ class App
             // 从控制器注解中提取路由规则并完成注册
             $this->registerRoutesFromAttributes();
             Hook::doAction('app.started', $this);
-            // 启动路由
-            $this->router->dispatch();
+            if (!$this->isWorkerMode) {
+                // 执行管道，最后执行路由调度
+                $response = Hook::runPipe('request.middleware', function () {
+                    return $this->router->dispatch();
+                });
+                $response->send();
+            }
         } catch (\Throwable $e) {
             $this->processError($e);
         } finally {
@@ -194,11 +215,13 @@ class App
      */
     public function end(): void
     {
-        // 清理资源
-        if ($this->cache && $this->cache->isUsingRedis()) {
-            $this->cache->close();
+        if (!$this->isWorkerMode) {
+            // 只在非 Worker 模式下清理资源
+            if ($this->cache && $this->cache->isUsingRedis()) {
+                $this->cache->close();
+            }
+            $this->logger->write();
         }
-        $this->logger->write();
     }
 
     /**
@@ -209,7 +232,6 @@ class App
         if ($concrete === null) {
             $concrete = $abstract;
         }
-
         $this->diContainer->set($abstract, $concrete);
         return $this;
     }
@@ -230,7 +252,6 @@ class App
         if ($this->diContainer->isInstantiated($className)) {
             return $this->diContainer->get($className);
         }
-
         return $this->diContainer->make($className, $parameters);
     }
 
@@ -337,7 +358,6 @@ class App
         $this->isDebugMode = $this->config->get('app.debug', false);
         // 注册全局异常处理器
         set_exception_handler([$this, 'handleUncaughtException']);
-
         // 注册PHP错误处理器
         set_error_handler([$this, 'handlePhpError']);
         return $this;
@@ -349,7 +369,6 @@ class App
     private function loadHookConfig(): void
     {
         $hooksPath = $this->appPath . DIRECTORY_SEPARATOR . 'hooks.php';
-
         if (file_exists($hooksPath)) {
             $hooks = require_once $hooksPath;
             // 直接使用数组而不是 HookConfig 对象
@@ -369,6 +388,8 @@ class App
         $this->diContainer = new Container();
         // 创建响应实例
         $this->response = new Response();
+        // 创建日志实例
+        $this->logger = new Logger($this->logPath);
         // 创建缓存实例
         $this->cache = new Cache($this->config, $this->cachePath);
         // 创建数据库实例
@@ -376,11 +397,9 @@ class App
         // 创建JWT实例
         $this->jwt = new Jwt($this->config);
         // 创建属性注解服务
-        $this->attribute = new Attribute($this->appPath . DIRECTORY_SEPARATOR . 'Controllers');
+        $this->attribute = new Attribute($this->appPath . DIRECTORY_SEPARATOR . 'controllers');
         // 创建路由实例
         $this->router = new Router();
-        // 创建日志实例
-        $this->logger = new Logger($this->logPath);
         // 将核心服务绑定到容器
         $this->bindCoreServicesToContainer();
         $this->registered = true;
@@ -449,13 +468,17 @@ class App
     /**
      * 处理错误
      */
-    private function processError(\Throwable $exception): void
+    private function processError(\Throwable $exception): ?Response
     {
         // 使用自定义异常处理器
         $handler = new ExceptionHandler($this->logger, $this->isDebugMode);
-
         $response = $handler->handle(Request::createFromGlobals(), $exception);
-        $response->send();
+        if (!this->isWorkerMode) {
+            $response->send();
+            return null;
+        } else {
+            return $response;
+        }
     }
 
     /**

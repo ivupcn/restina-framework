@@ -1,14 +1,14 @@
 <?php
-// restina/Request.php
+// restina/Logger.php
 
-namespace restina;
+namespace Restina;
 
 use Psr\Log\AbstractLogger;
 use Psr\Log\LoggerInterface;
 
 /**
  * 日志类
- * @package Logger
+ * @package Restina
  */
 class Logger extends AbstractLogger implements LoggerInterface
 {
@@ -25,12 +25,19 @@ class Logger extends AbstractLogger implements LoggerInterface
     private array $logBuffer = [];
 
     /**
+     * 是否在 FrankenPHP 环境中
+     * @var bool
+     */
+    private bool $isFrankenphp = false;
+
+    /**
      * Logger constructor.
      * @param string $logPath 日志路径
      */
     public function __construct(string $logPath)
     {
         $this->logPath = $logPath;
+        $this->isFrankenphp = function_exists('frankenphp_handle_request');
     }
 
     /**
@@ -50,6 +57,11 @@ class Logger extends AbstractLogger implements LoggerInterface
         ];
 
         $this->logBuffer[] = $logEntry;
+
+        // 在 FrankenPHP 环境中，对于错误级别的日志立即写入
+        if ($this->isFrankenphp && in_array($level, ['error', 'critical', 'alert', 'emergency'])) {
+            $this->write();
+        }
     }
 
     /**
@@ -95,5 +107,13 @@ class Logger extends AbstractLogger implements LoggerInterface
         }
 
         return $this->logPath . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log';
+    }
+
+    /**
+     * 立即写入日志（用于 FrankenPHP Worker 模式）
+     */
+    public function flush(): void
+    {
+        $this->write();
     }
 }

@@ -3,23 +3,64 @@
 
 namespace Restina;
 
+/**
+ * 缓存类
+ * @package Restina
+ */
 class Cache
 {
-    private $redis = null;  // 使用混合类型，避免 IDE 报错
+    /**
+     * Redis 实例
+     * @var Redis
+     */
+    private ?Redis $redis;
+
+    /**
+     * 缓存目录
+     * @var string
+     */
     private string $cacheDir;
+
+    /**
+     * 是否使用 Redis
+     * @var bool
+     */
     private bool $useRedis = false;
+
+    /**
+     * Redis 缓存前缀
+     * @var string
+     */
     private string $prefix = 'restina:';
+
+    /**
+     * 配置
+     * @var Config
+     */
     private Config $config;
+
+    /**
+     * 驱动
+     * @var string
+     */
     private string $driver = '';
 
     /**
+     * 是否在 FrankenPHP 环境中
+     * @var bool
+     */
+    private bool $isFrankenphp = false;
+
+    /**
      * @param Config $config 配置实例
+     * @param string|null $cacheDir 缓存目录
      */
     public function __construct(Config $config, ?string $cacheDir = null)
     {
         $this->config = $config;
         $this->prefix = $this->config->get('redis.prefix', 'restina:');
-        $this->driver = $this->config->get('app.cache', '');
+        $this->driver = $this->config->get('app.cache', 'file');
+        $this->isFrankenphp = function_exists('frankenphp_handle_request');
 
         // 检查Redis扩展是否可用
         if (!extension_loaded('redis')) {
@@ -27,25 +68,24 @@ class Cache
             $this->redis = null;
         } else {
             // 从配置中获取Redis设置
-            $redisHost = $this->config->get('redis.host', '127.0.0.1');
-            $redisPort = $this->config->get('redis.port', 6379);
             $redisEnabled = $this->driver === 'redis';
-
             if ($redisEnabled) {
                 try {
-                    $this->redis = new \Redis();
-                    $this->redis->connect($redisHost, $redisPort);
+                    $this->redis = new Redis($config);
 
-                    // 测试连接
-                    if ($this->redis->ping()) {
-                        $this->useRedis = true;
+                    // 在 FrankenPHP 环境中，可能需要更严格的连接测试
+                    if ($this->isFrankenphp) {
+                        // 可能需要配置持久连接或连接池
+                        $this->testAndReconnect();
                     } else {
-                        // 连接失败，回退到文件缓存
-                        $this->redis = null;
-                        $this->useRedis = false;
+                        // 测试连接
+                        $this->redis->getConnection()->ping();
                     }
+
+                    $this->useRedis = true;
                 } catch (\Exception $e) {
                     // Redis连接失败，使用文件缓存
+                    error_log("Redis connection failed: " . $e->getMessage());
                     $this->redis = null;
                     $this->useRedis = false;
                 }
@@ -54,13 +94,15 @@ class Cache
 
         // 如果不使用Redis，设置文件缓存目录
         if (!$this->useRedis) {
-            if ($cacheDir === '') {
-                // 如果配置中也没有指定路径，使用默认路径
-                $cacheDir = __DIR__ . '/../runtime/cache';
+            if ($cacheDir === null) {
+                // 如果参数未指定，尝试从配置获取
+                $cacheDir = $this->config->get('app.cache_dir', '');
+                if ($cacheDir === '') {
+                    // 如果配置中也没有指定路径，使用默认路径
+                    $cacheDir = __DIR__ . '/../runtime/cache';
+                }
             }
-
             $this->cacheDir = rtrim($cacheDir, DIRECTORY_SEPARATOR);
-
             if (!is_dir($this->cacheDir)) {
                 mkdir($this->cacheDir, 0755, true);
             }
@@ -68,17 +110,58 @@ class Cache
     }
 
     /**
-     * 设置缓存项
+     * 在 FrankenPHP 环境中测试连接并重连（如果需要）
      */
-    public function set(string $key, mixed $value, int $ttl = 3600): void
+    private function testAndReconnect(): void
     {
-        if ($this->driver === '') {
+        if (!$this->useRedis || !$this->redis) {
             return;
         }
+
+        try {
+            $connection = $this->redis->getConnection();
+
+            // 尝试 ping 服务器
+            $connection->ping();
+        } catch (\Exception $e) {
+            // 连接失败，尝试重连
+            try {
+                // 关闭旧连接
+                $this->redis->close();
+
+                // 重新创建连接
+                $this->redis = new Redis($this->config);
+
+                // 测试新连接
+                $this->redis->getConnection()->ping();
+            } catch (\Exception $reconnectException) {
+                // 重连失败，切换到文件缓存
+                error_log("Redis reconnection failed: " . $reconnectException->getMessage());
+                $this->useRedis = false;
+                $this->redis = null;
+            }
+        }
+    }
+
+    /**
+     * 设置缓存项
+     */
+    public function set(string $key, mixed $value, int $ttl = 3600): bool
+    {
+        if ($this->driver === '') {
+            return false;
+        }
+
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
         if ($this->useRedis) {
-            $this->setRedisCache($key, $value, $ttl);
+            return $this->setRedisCache($key, $value, $ttl);
         } else {
             $this->setFileCache($key, $value, $ttl);
+            return true;
         }
     }
 
@@ -90,6 +173,12 @@ class Cache
         if ($this->driver === '') {
             return null;
         }
+
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
         if ($this->useRedis) {
             return $this->getRedisCache($key, $default);
         } else {
@@ -105,6 +194,12 @@ class Cache
         if ($this->driver === '') {
             return false;
         }
+
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
         if ($this->useRedis) {
             return $this->hasRedisCache($key);
         } else {
@@ -117,6 +212,11 @@ class Cache
      */
     public function delete(string $key): bool
     {
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
         if ($this->useRedis) {
             return $this->deleteRedisCache($key);
         } else {
@@ -129,6 +229,11 @@ class Cache
      */
     public function clear(): void
     {
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
         if ($this->useRedis) {
             $this->clearRedisCache();
         } else {
@@ -137,12 +242,117 @@ class Cache
     }
 
     /**
+     * 获取多个缓存项
+     */
+    public function getMultiple(iterable $keys, mixed $default = null): iterable
+    {
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
+        $results = [];
+
+        if ($this->useRedis) {
+            $prefixedKeys = [];
+            $keyMap = [];
+
+            // 构建带前缀的键数组和映射关系
+            foreach ($keys as $key) {
+                $prefixedKey = $this->prefix . $key;
+                $prefixedKeys[] = $prefixedKey;
+                $keyMap[$prefixedKey] = $key;
+            }
+
+            // 批量获取
+            $fetched = $this->redis->mget($prefixedKeys);
+
+            // 重组结果
+            $i = 0;
+            foreach ($prefixedKeys as $prefixedKey) {
+                $originalKey = $keyMap[$prefixedKey];
+                $results[$originalKey] = $fetched[$i] ?? $default;
+                $i++;
+            }
+        } else {
+            foreach ($keys as $key) {
+                $results[$key] = $this->get($key, $default);
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * 设置多个缓存项
+     */
+    public function setMultiple(iterable $values, int $ttl = 3600): bool
+    {
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
+        if ($this->useRedis) {
+            $prefixedValues = [];
+            foreach ($values as $key => $value) {
+                $prefixedValues[$this->prefix . $key] = $value;
+            }
+
+            // 对于Redis，我们需要手动设置TTL
+            $result = $this->redis->mset($prefixedValues);
+
+            // 为每个键设置过期时间
+            foreach ($values as $key => $value) {
+                $this->redis->expire($this->prefix . $key, $ttl);
+            }
+
+            return $result;
+        } else {
+            $success = true;
+            foreach ($values as $key => $value) {
+                if (!$this->set($key, $value, $ttl)) {
+                    $success = false;
+                }
+            }
+            return $success;
+        }
+    }
+
+    /**
+     * 删除多个缓存项
+     */
+    public function deleteMultiple(iterable $keys): bool
+    {
+        // 在 FrankenPHP 环境中，检查 Redis 连接状态
+        if ($this->isFrankenphp && $this->useRedis) {
+            $this->testAndReconnect();
+        }
+
+        if ($this->useRedis) {
+            $prefixedKeys = array_map(function ($key) {
+                return $this->prefix . $key;
+            }, is_array($keys) ? $keys : iterator_to_array($keys));
+
+            return $this->redis->del(...$prefixedKeys) > 0;
+        } else {
+            $success = true;
+            foreach ($keys as $key) {
+                if (!$this->delete($key)) {
+                    $success = false;
+                }
+            }
+            return $success;
+        }
+    }
+
+    /**
      * 设置Redis缓存
      */
-    private function setRedisCache(string $key, mixed $value, int $ttl): void
+    private function setRedisCache(string $key, mixed $value, int $ttl): bool
     {
         $prefixedKey = $this->prefix . $key;
-        $this->redis->setex($prefixedKey, $ttl, serialize($value));
+        return $this->redis->set($prefixedKey, $value, $ttl);
     }
 
     /**
@@ -151,13 +361,8 @@ class Cache
     private function getRedisCache(string $key, mixed $default): mixed
     {
         $prefixedKey = $this->prefix . $key;
-        $serializedValue = $this->redis->get($prefixedKey);
-
-        if ($serializedValue !== false) {
-            return unserialize($serializedValue);
-        }
-
-        return $default;
+        $result = $this->redis->get($prefixedKey);
+        return $result !== false ? $result : $default;
     }
 
     /**
@@ -183,11 +388,17 @@ class Cache
      */
     private function clearRedisCache(): void
     {
-        // 删除所有匹配前缀的键
-        $keys = $this->redis->keys($this->prefix . '*');
-        if (!empty($keys)) {
-            $this->redis->del($keys);
-        }
+        // 获取所有匹配前缀的键
+        $pattern = $this->prefix . '*';
+
+        // 使用scan命令避免阻塞，适用于生产环境
+        $iterator = null;
+        do {
+            $keys = $this->redis->getConnection()->scan($iterator, $pattern, 100);
+            if ($keys !== false && !empty($keys)) {
+                $this->redis->del(...$keys);
+            }
+        } while ($iterator > 0);
     }
 
     /**
@@ -207,10 +418,17 @@ class Cache
 
         $cacheData = [
             'value' => $value,
-            'expires_at' => time() + $ttl
+            'expires_at' => time() + $ttl,
+            'created_at' => time()
         ];
 
-        file_put_contents($filePath, serialize($cacheData));
+        // 创建临时文件然后重命名，保证原子性
+        $tempFile = $filePath . '.tmp';
+        $serialized = serialize($cacheData);
+
+        if (file_put_contents($tempFile, $serialized, LOCK_EX) !== false) {
+            rename($tempFile, $filePath);
+        }
     }
 
     /**
@@ -278,7 +496,7 @@ class Cache
             return unlink($filePath);
         }
 
-        return false;
+        return true; // 文件不存在也认为删除成功
     }
 
     /**
@@ -287,79 +505,10 @@ class Cache
     private function clearFileCache(): void
     {
         $files = glob($this->cacheDir . DIRECTORY_SEPARATOR . '*.cache');
-        foreach ($files as $file) {
-            unlink($file);
-        }
-    }
-
-    /**
-     * 获取多个缓存项
-     */
-    public function getMultiple(iterable $keys, mixed $default = null): iterable
-    {
-        $results = [];
-
-        if ($this->useRedis) {
-            $prefixedKeys = [];
-            foreach ($keys as $key) {
-                $prefixedKeys[] = $this->prefix . $key;
+        if ($files) {
+            foreach ($files as $file) {
+                unlink($file);
             }
-
-            $values = $this->redis->mget($prefixedKeys);
-
-            $i = 0;
-            foreach ($keys as $key) {
-                $value = $values[$i] !== false ? unserialize($values[$i]) : $default;
-                $results[$key] = $value;
-                $i++;
-            }
-        } else {
-            foreach ($keys as $key) {
-                $results[$key] = $this->get($key, $default);
-            }
-        }
-
-        return $results;
-    }
-
-    /**
-     * 设置多个缓存项
-     */
-    public function setMultiple(iterable $values, int $ttl = 3600): void
-    {
-        if ($this->useRedis) {
-            $pipeline = $this->redis->multi(\Redis::PIPELINE);
-
-            foreach ($values as $key => $value) {
-                $prefixedKey = $this->prefix . $key;
-                $pipeline->setex($prefixedKey, $ttl, serialize($value));
-            }
-
-            $pipeline->exec();
-        } else {
-            foreach ($values as $key => $value) {
-                $this->set($key, $value, $ttl);
-            }
-        }
-    }
-
-    /**
-     * 删除多个缓存项
-     */
-    public function deleteMultiple(iterable $keys): bool
-    {
-        if ($this->useRedis) {
-            $prefixedKeys = [];
-            foreach ($keys as $key) {
-                $prefixedKeys[] = $this->prefix . $key;
-            }
-
-            return $this->redis->del($prefixedKeys) > 0;
-        } else {
-            foreach ($keys as $key) {
-                $this->delete($key);
-            }
-            return true;
         }
     }
 
@@ -370,10 +519,14 @@ class Cache
     {
         if (!$this->useRedis) {
             $files = glob($this->cacheDir . DIRECTORY_SEPARATOR . '*.cache');
-            foreach ($files as $file) {
-                $cacheData = unserialize(file_get_contents($file));
-                if ($cacheData === false || $cacheData['expires_at'] < time()) {
-                    unlink($file);
+            if ($files) {
+                foreach ($files as $file) {
+                    if (file_exists($file)) {
+                        $cacheData = unserialize(file_get_contents($file));
+                        if ($cacheData === false || $cacheData['expires_at'] < time()) {
+                            unlink($file);
+                        }
+                    }
                 }
             }
         }
@@ -382,9 +535,9 @@ class Cache
     /**
      * 获取Redis实例（如果可用）
      */
-    public function getRedis(): mixed
+    public function getRedis(): ?Redis
     {
-        return $this->redis;
+        return $this->useRedis ? $this->redis : null;
     }
 
     /**

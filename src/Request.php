@@ -11,6 +11,7 @@ use Nyholm\Psr7\Stream;
 
 /**
  * 请求类
+ * @package Restina
  */
 class Request
 {
@@ -24,6 +25,10 @@ class Request
      */
     public static function createFromGlobals(): ServerRequestInterface
     {
+        if (function_exists('frankenphp_handle_request')) {
+            // 在 FrankenPHP 环境下，使用特殊处理
+            return self::createFromFrankenphp();
+        }
         // 预先读取输入流，供多处使用
         $inputContent = file_get_contents('php://input') ?: '';
 
@@ -34,6 +39,41 @@ class Request
         $uri = self::createUri();
 
         // 创建请求对象
+        $request = new ServerRequest($method, $uri);
+
+        // 添加请求头
+        foreach (self::getRequestHeaders() as $name => $value) {
+            $request = $request->withAddedHeader($name, $value);
+        }
+
+        // 添加请求体
+        $request = $request->withBody(self::createBody($inputContent));
+
+        // 添加查询参数
+        $request = $request->withQueryParams($_GET ?? []);
+
+        // 添加 Cookie
+        $request = $request->withCookieParams($_COOKIE ?? []);
+
+        // 添加上传文件
+        $request = $request->withUploadedFiles(self::createUploadedFiles($_FILES ?? []));
+
+        // 添加请求属性
+        $request = $request->withParsedBody(self::parseRequestBody($inputContent));
+
+        return $request;
+    }
+
+    /**
+     * 从 FrankenPHP 环境创建请求对象
+     */
+    private static function createFromFrankenphp(): ServerRequestInterface
+    {
+        // 在 FrankenPHP 环境中，全局变量依然可用
+        $inputContent = file_get_contents('php://input') ?: '';
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $uri = self::createUri();
+
         $request = new ServerRequest($method, $uri);
 
         // 添加请求头
