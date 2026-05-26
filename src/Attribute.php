@@ -12,7 +12,10 @@ use Restina\attribute\Headers;
 use Restina\attribute\Params;
 use Restina\attribute\Returns;
 
-// 属性注解类，负责扫描控制器并生成API文档数组
+/**
+ * 属性注解类，负责扫描控制器并生成API文档数组
+ * @package Restina
+ */
 class Attribute
 {
     /**
@@ -23,11 +26,11 @@ class Attribute
     /**
      * 构造函数
      *
-     * @param string $dir 控制器目录，默认为 app/Controllers
+     * @param string $dir 控制器目录，默认为 app/controllers
      */
     public function __construct(string $dir = '')
     {
-        $this->dir = $dir ? $dir : dirname(__DIR__, 4) . '/app/Controllers';
+        $this->dir = $dir ? $dir : dirname(__DIR__, 4) . '/app/controllers';
     }
 
     /**
@@ -47,12 +50,15 @@ class Attribute
             // 获取控制器类的反射对象，并提取类级别的文档信息
             $reflectionClass = new ReflectionClass($controllerClass);
             $controllerAttribute = $reflectionClass->getAttributes(Docs::class)[0] ?? null;
+            $controllerDocs = [];
             if ($controllerAttribute) {
                 $controllerInstance = $controllerAttribute->newInstance();
-                $documentation[$controllerClass] = [
+                $controllerDocs = [
+                    'class' => $controllerClass,
                     'title' => $controllerInstance->title,
                     'description' => $controllerInstance->description,
-                    'category' => $controllerInstance->category
+                    'category' => $controllerInstance->category,
+                    'endpoints' => []
                 ];
             }
             // 获取控制器属性中的公共方法，并提取每个方法的端点信息
@@ -60,8 +66,11 @@ class Attribute
             foreach ($methods as $method) {
                 $endpointInfo = $this->extractEndpointInfo($method);
                 if ($endpointInfo) {
-                    $documentation[$controllerClass]['endpoints'][] = $endpointInfo;
+                    $controllerDocs['endpoints'][] = $endpointInfo;
                 }
+            }
+            if (!empty($controllerDocs)) {
+                $documentation[] = $controllerDocs;
             }
         }
         return $documentation;
@@ -155,7 +164,7 @@ class Attribute
         if (!$routeInfo || !$apiInfo) {
             return null;
         }
-        $paramInfo = $this->extractParams($method, $routeInfo['route']);
+        $paramInfo = $this->extractParams($method, $routeInfo['path']);
         $headersInfo = $this->extractHeaders($method);
         $returnsInfo = $this->extractReturns($method);
         return [
