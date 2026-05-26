@@ -1,12 +1,13 @@
 <?php
-// restina/Console/CommandRegistry.php
+// restina/console/CommandRegistry.php
 
-namespace Restina\Console;
+namespace Restina\console;
 
 use Restina\App;
 
 /**
  * 命令注册器
+ * @package Restina\console
  */
 class CommandRegistry
 {
@@ -63,9 +64,36 @@ class CommandRegistry
     {
         $command = $this->find($signature);
         if (!$command) {
-            throw new \InvalidArgumentException("Command {$signature} not found");
+            // 提供模糊匹配提示
+            $suggestions = $this->suggestSimilarCommands($signature);
+            $errorMessage = "Command {$signature} not found";
+
+            if (!empty($suggestions)) {
+                $errorMessage .= ". Did you mean: " . implode(', ', $suggestions) . "?";
+            }
+
+            throw new \InvalidArgumentException($errorMessage);
         }
 
         return $command->handle($app);
+    }
+
+    /**
+     * 建议相似的命令
+     * @param string $input
+     * @return array
+     */
+    private function suggestSimilarCommands(string $input): array
+    {
+        $suggestions = [];
+        $commands = array_keys($this->commands);
+
+        foreach ($commands as $command) {
+            if (levenshtein($input, $command) <= 2) { // 编辑距离小于等于2
+                $suggestions[] = $command;
+            }
+        }
+
+        return array_slice($suggestions, 0, 3); // 最多返回3个建议
     }
 }
