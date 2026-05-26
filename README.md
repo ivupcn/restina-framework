@@ -6,13 +6,14 @@ Restina是一个免费开源的，快速、简单的面向对象的轻量级PHP�
 
 ## 主要新特性
 
-* 采用`PHP8`强类型（严格模式）
+* 原生支持`PHP8.4+`强类型（严格模式）
 * 支持更多的`PSR`规范
 * 系统服务注入支持
 * ORM作为独立组件使用
 * 全新的Hook系统
 * 规范扩展接口
 * 对IDE更加友好
+* 支持 FrankenPHP Worker 模式
 * 统一和精简大量用法
 
 
@@ -75,12 +76,12 @@ composer update ivupcn/restina
 ~~~
 www  WEB部署目录（或者子目录）
 ├─app           应用目录
-│  ├─Commands           Cli控制器目录
-│  ├─Controllers        控制器目录
-│  ├─Filters            过滤器目录
-│  ├─Hooks              Hook目录
-│  ├─Models             模型目录
-│  ├─Views              视图目录
+│  ├─commands           Cli控制器目录
+│  ├─controllers        控制器目录
+│  ├─filters            过滤器目录
+│  ├─hooks              Hook目录
+│  ├─models             模型目录
+│  ├─views              视图目录
 │  ├─config.php         配置文件
 │  └─hooks.php          钩子配置文件
 │
