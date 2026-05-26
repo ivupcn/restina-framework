@@ -3,6 +3,10 @@
 
 namespace Restina;
 
+/**
+ * 配置类
+ * @package Restina
+ */
 class Config
 {
     private array $config = [];

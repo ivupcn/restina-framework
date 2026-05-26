@@ -7,6 +7,7 @@ use InvalidArgumentException;
 
 /**
  * 钩子类
+ * @package Restina
  */
 class Hook
 {
@@ -123,7 +124,7 @@ class Hook
      * @param mixed $payload 传递给中间件的数据（如 Request 对象）
      * @return mixed 返回最终的处理结果
      */
-    public static function runPipe(string $hook, $payload)
+    public static function runPipe(string $hook, $payload): mixed
     {
         // 如果没有注册该管道，直接返回 payload
         if (!isset(self::$pipes[$hook]) || empty(self::$pipes[$hook])) {

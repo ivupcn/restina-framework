@@ -6,6 +6,10 @@ namespace Restina;
 use Psr\Http\Message\ResponseInterface;
 use Restina\Response;
 
+/**
+ * 助手类
+ * @package Restina
+ */
 class Helper
 {
     /**

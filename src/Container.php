@@ -10,6 +10,10 @@ use ReflectionClass;
 use ReflectionProperty;
 use ReflectionMethod;
 
+/**
+ * 容器类
+ * @package Restina
+ */
 class Container
 {
     private PHPDIContainer $container;

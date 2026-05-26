@@ -14,7 +14,8 @@ use Restina\Hook;
 use Restina\Container;
 
 /**
- * Http.
+ * Http类
+ * @package Restina
  */
 class Http
 {
@@ -80,7 +81,7 @@ class Http
         }
         if (!$hasDefaultRoute) {
             $this->app->router->get('/', function (Request $request) {
-                return $this->app->response->withJson('default route missing', 200);
+                return $this->app->response->withJson('默认路由', 200);
             });
         }
     }

@@ -9,6 +9,10 @@ use Firebase\JWT\ExpiredException;
 use Firebase\JWT\SignatureInvalidException;
 use Restina\Config;
 
+/**
+ * JWT类
+ * @package Restina
+ */
 class Jwt
 {
     private string $secret;

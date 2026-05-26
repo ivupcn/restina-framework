@@ -9,6 +9,7 @@ use Nyholm\Psr7\Stream;
 
 /**
  * 响应类
+ * @package Restina
  */
 class Response extends BaseResponse
 {
@@ -482,6 +483,11 @@ class Response extends BaseResponse
      */
     public function send()
     {
+        if (function_exists('frankenphp_handle_request')) {
+            // 在 FrankenPHP 环境下，不直接发送响应
+            // 让 FrankenPHP 处理响应发送
+            return $this;
+        }
         try {
             // 防止重复发送
             if (headers_sent()) {

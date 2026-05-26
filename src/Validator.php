@@ -7,6 +7,7 @@ use InvalidArgumentException;
 
 /**
  * 验证器类
+ * @package Restina
  */
 class Validator
 {

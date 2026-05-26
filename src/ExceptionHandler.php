@@ -10,6 +10,7 @@ use Throwable;
 
 /**
  * Handles exceptions
+ * @package Restina
  */
 class ExceptionHandler
 {
