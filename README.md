@@ -87,6 +87,7 @@ www  WEB部署目录（或者子目录）
 │
 ├─public                WEB目录（对外访问目录）
 │  ├─index.php          入口文件
+│  └─cli.php            命令行入口文件
 │
 ├─extend                扩展类库目录
 ├─runtime               应用的运行时目录（可写，可定制）
