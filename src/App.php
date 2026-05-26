@@ -18,7 +18,7 @@ use Restina\Response;
 use Restina\Http;
 use Restina\Cache;
 use Restina\Config;
-use Restina\Console\CommandRegistry;
+use Restina\Console;
 
 /**
  * @author 飞翔的蓝 <ivup@ivup.cn>
@@ -45,7 +45,6 @@ class App
     private Router $router;
     private Logger $logger;
     private Response $response;
-    private CommandRegistry $commandRegistry;
     private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
@@ -211,6 +210,16 @@ class App
     }
 
     /**
+     * 运行控制台
+     * @return int
+     */
+    public function console(): int
+    {
+        $console = new Console($this);
+        return $console->run();
+    }
+
+    /**
      * 终止阶段
      */
     public function end(): void
@@ -282,16 +291,41 @@ class App
         return $this->cache->get($key, $default);
     }
 
+    /**
+     * 获取根目录路径
+     */
+    public function getRootPath(): string
+    {
+        return $this->rootPath;
+    }
+
+    /**
+     * 获取视图目录路径
+     */
     public function getViewPath(): string
     {
         return $this->viewPath;
     }
 
+    /**
+     * 获取应用目录路径
+     */
+    public function getAppPath(): string
+    {
+        return $this->appPath;
+    }
+
+    /**
+     * 获取缓存目录路径
+     */
     public function getCachePath(): string
     {
         return $this->cachePath;
     }
 
+    /**
+     * 获取调试模式
+     */
     public function isDebugMode(): string
     {
         return $this->isDebugMode;
