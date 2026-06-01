@@ -25,9 +25,9 @@ class Request
      */
     public static function createFromGlobals(): ServerRequestInterface
     {
-        if (function_exists('frankenphp_handle_request')) {
+        if (RUN_MODE === 'worker') {
             // 在 FrankenPHP 环境下，使用特殊处理
-            return self::createFromFrankenphp();
+            return self::createFromWorker();
         }
         // 预先读取输入流，供多处使用
         $inputContent = file_get_contents('php://input') ?: '';
@@ -67,7 +67,7 @@ class Request
     /**
      * 从 FrankenPHP 环境创建请求对象
      */
-    private static function createFromFrankenphp(): ServerRequestInterface
+    private static function createFromWorker(): ServerRequestInterface
     {
         // 在 FrankenPHP 环境中，全局变量依然可用
         $inputContent = file_get_contents('php://input') ?: '';

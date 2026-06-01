@@ -63,5 +63,32 @@ return [
         'port' => 6379,
         'database' => 0,
         'prefix' => 'restina:'
-    ]
+    ],
+    'queue' => [
+        'default' => 'redis', // 'redis' or 'database'
+        'connections' => [
+            'redis' => [
+                'driver' => 'redis',
+                'connection' => 'default',
+                'queue' => 'default',
+                'retry_after' => 90,
+                'block_for' => null,
+                'after_commit' => false,
+                'prefix' => 'restina:queue:',
+                'failed_key' => 'restina:queue:failed'
+            ],
+            'database' => [
+                'driver' => 'database',
+                'table' => 'queue_jobs',
+                'failed_table' => 'queue_failed_jobs',
+                'retry_after' => 90,
+                'after_commit' => false
+            ]
+        ],
+        'failed' => [
+            'driver' => 'database', // 'database' or 'redis'
+            'database' => 'mysql',
+            'table' => 'queue_failed_jobs',
+        ],
+    ],
 ];

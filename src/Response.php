@@ -481,17 +481,20 @@ class Response extends BaseResponse
      * 
      * @return static 返回自身实例以便链式调用
      */
-    public function send()
+    public function send(): static
     {
-        if (function_exists('frankenphp_handle_request')) {
+        if (RUN_MODE === 'worker') {
             // 在 FrankenPHP 环境下，不直接发送响应
             // 让 FrankenPHP 处理响应发送
             return $this;
         }
         try {
             // 防止重复发送
-            if (headers_sent()) {
-                throw new \RuntimeException('Headers 已发送');
+            if (headers_sent($file, $line)) {
+                // 如果头部已发送，记录详细信息
+                error_log("Headers already sent in {$file} on line {$line}");
+                error_log("Response body would have been: " . $this->getBody()->getContents());
+                return $this;
             }
 
             // 设置响应状态
@@ -502,7 +505,7 @@ class Response extends BaseResponse
                 $first = true;
                 foreach ($values as $value) {
                     header(sprintf('%s: %s', $name, $value), $first);
-                    $first = false; // 对于同名头部，后续设置需为false
+                    $first = false;
                 }
             }
 
@@ -513,21 +516,16 @@ class Response extends BaseResponse
             // 分块读取并输出响应体
             while (!$body->eof()) {
                 echo $body->read(8192);
-                flush(); // 刷新输出缓冲区
+                flush();
             }
-
             return $this;
         } catch (\Throwable $e) {
-            // 记录错误日志
             error_log("Response send error: " . $e->getMessage());
-
-            // 如果头部未发送，发送500错误
             if (!headers_sent()) {
                 http_response_code(500);
                 echo "Internal Server Error";
             }
-
-            throw $e; // 重新抛出异常
+            throw $e;
         }
     }
 }

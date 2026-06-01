@@ -9,6 +9,8 @@ use DI\NotFoundException;
 use ReflectionClass;
 use ReflectionProperty;
 use ReflectionMethod;
+use ReflectionNamedType;
+use Restina\attribute\Inject;
 
 /**
  * 容器类
@@ -119,47 +121,36 @@ class Container
 
     /**
      * 注入属性
+     * @param object $instance
      */
     public function injectProperties(object $instance): void
     {
         $reflection = new ReflectionClass($instance);
-        $properties = $reflection->getProperties(ReflectionProperty::IS_PRIVATE);
+        $properties = $reflection->getProperties(ReflectionProperty::IS_PUBLIC | ReflectionProperty::IS_PROTECTED | ReflectionProperty::IS_PRIVATE);
         foreach ($properties as $property) {
-            if ($this->shouldInjectProperty($property)) {
-                $this->injectProperty($instance, $property);
+            $attributes = $property->getAttributes(Inject::class);
+            if (empty($attributes)) {
+                continue; // 没有注解，跳过
+            }
+            // 如果 Attribute 没有指定 ID，则尝试从属性类型推断
+            if ($id === null) {
+                $type = $property->getType();
+                // 检查是否存在类型声明，且不是内置类型 (int, string, array 等)
+                if (!$type instanceof \ReflectionNamedType || $type->isBuiltin()) {
+                    $className = $reflection->getName();
+                    $propName = $property->getName();
+                    throw new \InvalidArgumentException(
+                        "Cannot auto-resolve injection for property \${$propName} in class {$className}. " .
+                            "Please specify a class name in #[Inject('ClassName')] or add a valid type hint."
+                    );
+                }
+                $id = $type->getName();
+            }
+            if ($id) {
+                $property->setAccessible(true);
+                $property->setValue($instance, $this->get($id));
             }
         }
-    }
-
-    /**
-     * 判断是否应该注入属性
-     */
-    private function shouldInjectProperty(ReflectionProperty $property): bool
-    {
-        $docComment = $property->getDocComment();
-
-        // 检查是否有 @inject 注解
-        return $docComment && strpos($docComment, '@inject') !== false;
-    }
-
-    /**
-     * 注入单个属性
-     */
-    private function injectProperty(object $instance, ReflectionProperty $property): void
-    {
-        // 在 PHP 8.1+ 中，不再需要调用 setAccessible()
-        // ReflectionProperty::setValue() 方法会自动处理访问权限
-
-        $type = $property->getType();
-        if (!$type || $type->isBuiltin()) {
-            return;
-        }
-
-        $serviceName = $type->getName();
-        $service = $this->get($serviceName);
-
-        // 使用 setValue 方法，无需调用 setAccessible()
-        $property->setValue($instance, $service);
     }
 
     /**

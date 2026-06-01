@@ -137,35 +137,28 @@ class Console
 
     /**
      * 从文件中注册命令类
+     * 使用 PSR-4 规范通过文件路径推断类名
      */
     private function registerCommandFromFile(string $filePath): void
     {
-        // 获取文件内容并提取类名
-        $content = file_get_contents($filePath);
+        // 基于文件路径构建预期类名（遵循 PSR-4 规范）
+        $appPath = $this->app->getAppPath();
+        $relativePath = str_replace([$appPath . '/', '.php'], ['', ''], $filePath);
 
-        // 提取命名空间
-        if (preg_match('/namespace\s+([^\s;]+)/', $content, $nsMatches)) {
-            $namespace = trim($nsMatches[1]);
-        } else {
-            // 如果没有命名空间，使用默认命名空间
-            $namespace = 'App\\Commands';
-        }
+        // 将路径转换为命名空间格式
+        $classNamespace = str_replace('/', '\\', $relativePath);
+        $fullClassName = 'App\\Commands\\' . $classNamespace;
 
-        // 提取类名
-        if (preg_match('/class\s+(\w+)/', $content, $classMatches)) {
-            $className = $namespace . '\\' . $classMatches[1];
+        // 验证类是否存在且符合命令规范
+        if (class_exists($fullClassName)) {
+            $reflection = new \ReflectionClass($fullClassName);
 
-            // 确保类存在且是命令类
-            if (class_exists($className)) {
-                $reflection = new \ReflectionClass($className);
-
-                // 检查是否继承自 Command 基类
-                if ($reflection->isSubclassOf(\Restina\Console\Command::class) && !$reflection->isAbstract()) {
-                    try {
-                        $this->commandRegistry->register($className);
-                    } catch (\Exception $e) {
-                        fwrite(STDERR, "Warning: Failed to register command {$className}: " . $e->getMessage() . "\n");
-                    }
+            // 检查是否继承自 Command 基类且不是抽象类
+            if ($reflection->isSubclassOf(\Restina\Console\Command::class) && !$reflection->isAbstract()) {
+                try {
+                    $this->commandRegistry->register($fullClassName);
+                } catch (\Exception $e) {
+                    fwrite(STDERR, "Warning: Failed to register command {$fullClassName}: " . $e->getMessage() . "\n");
                 }
             }
         }

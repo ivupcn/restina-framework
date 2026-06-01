@@ -45,6 +45,7 @@ class App
     private Router $router;
     private Logger $logger;
     private Response $response;
+    private Queue $queue;
     private bool $isDebugMode;
     private string $restinaPath;
     private string $rootPath;
@@ -56,7 +57,6 @@ class App
     private array $serviceProviders = [];
     private bool $registered = false;
     private bool $bootstrapped = false;
-    private bool $isWorkerMode = false;
 
     /**
      * 服务名称映射表 - 将别名映射到实际类名
@@ -99,12 +99,14 @@ class App
     {
         // 初始化路径
         $this->initializePaths();
+        // 确定运行模式
+        $this->determineRunMode();
     }
 
     /**
      * 魔术方法 - 支持通过 $app->property 访问容器中的服务
      */
-    public function __get(string $property)
+    public function __get(string $property): mixed
     {
         // 检查容器中是否有对应的服务
         if ($this->diContainer !== null) {
@@ -148,19 +150,6 @@ class App
         return false;
     }
 
-
-    /**
-     * 设置运行模式
-     *
-     * @param bool $isWorkerMode
-     * @return $this
-     */
-    public function setIsWorkerMode(bool $isWorkerMode): self
-    {
-        $this->isWorkerMode = $isWorkerMode;
-        return $this;
-    }
-
     /**
      * 启动应用
      */
@@ -195,12 +184,12 @@ class App
             // 从控制器注解中提取路由规则并完成注册
             $this->registerRoutesFromAttributes();
             Hook::doAction('app.started', $this);
-            if (!$this->isWorkerMode) {
-                // 执行管道，最后执行路由调度
-                $response = Hook::runPipe('request.middleware', function () {
-                    return $this->router->dispatch();
-                });
-                $response->send();
+            if (RUN_MODE === 'worker') {
+                $this->handleWorkerMode();
+            } elseif (RUN_MODE === 'cli') {
+                $this->handleCliMode();
+            } else {
+                $this->handleCgiMode();
             }
         } catch (\Throwable $e) {
             $this->processError($e);
@@ -210,26 +199,18 @@ class App
     }
 
     /**
-     * 运行控制台
-     * @return int
-     */
-    public function console(): int
-    {
-        $console = new Console($this);
-        return $console->run();
-    }
-
-    /**
      * 终止阶段
      */
     public function end(): void
     {
-        if (!$this->isWorkerMode) {
+        if (RUN_MODE === 'cgi') {
             // 只在非 Worker 模式下清理资源
             if ($this->cache && $this->cache->isUsingRedis()) {
                 $this->cache->close();
             }
-            $this->logger->write();
+            if ($this->logger) {
+                $this->logger->write();
+            }
         }
     }
 
@@ -326,7 +307,7 @@ class App
     /**
      * 获取调试模式
      */
-    public function isDebugMode(): string
+    public function isDebugMode(): bool
     {
         return $this->isDebugMode;
     }
@@ -351,6 +332,17 @@ class App
     public function getDb(): Db
     {
         return $this->db;
+    }
+
+    /**
+     * 获取队列管理器
+     */
+    public function getQueue(): Queue
+    {
+        if (!isset($this->queue)) {
+            $this->queue = new Queue($this->config, $this->db);
+        }
+        return $this->queue;
     }
 
     /**
@@ -500,6 +492,47 @@ class App
     }
 
     /**
+     * 运行 Web 模式
+     */
+    private function handleCgiMode(): void
+    {
+        $response = $this->handleRequest();
+        $response->send();
+    }
+
+    /**
+     * 运行命令行模式
+     */
+    private function handleCliMode(): void
+    {
+        $console = new Console($this);
+        $console->run();
+    }
+
+    /**
+     * 运行 Worker 模式
+     * @return Response
+     */
+    private function handleWorkerMode(): void
+    {
+        while (frankenphp_handle_request(function () {
+            $response = $this->handleRequest();
+            gc_collect_cycles();
+            return $response;
+        }));
+    }
+
+    /**
+     * 处理单个请求
+     */
+    private function handleRequest(): Response
+    {
+        return Hook::runPipe('request.middleware', function () {
+            return $this->router->dispatch();
+        });
+    }
+
+    /**
      * 处理错误
      */
     private function processError(\Throwable $exception): ?Response
@@ -507,9 +540,12 @@ class App
         // 使用自定义异常处理器
         $handler = new ExceptionHandler($this->logger, $this->isDebugMode);
         $response = $handler->handle(Request::createFromGlobals(), $exception);
-        if (!this->isWorkerMode) {
+        if (RUN_MODE === 'cgi') {
             $response->send();
-            return null;
+            return $response;
+        } elseif (RUN_MODE === 'cli') {
+            fwrite(STDERR, $response->getContent() . PHP_EOL);
+            return $response;
         } else {
             return $response;
         }
@@ -528,8 +564,32 @@ class App
      */
     public function handlePhpError(int $errno, string $errstr, string $errfile, int $errline): bool
     {
-        $error = new \ErrorException($errstr, $errno, $errno, $errfile, $errline);
+        $error = new \ErrorException($errstr, 0, $errno, $errfile, $errline);
         $this->processError($error);
         return true; // 不执行PHP内部错误处理器
+    }
+
+    /**
+     * 获取运行模式
+     */
+    private function determineRunMode(): void
+    {
+        $envMode = $_ENV['FRANKENPHP_MODE'] ?? $_SERVER['FRANKENPHP_MODE'] ?? null;
+        $serverSoftware = $_SERVER['SERVER_SOFTWARE'] ?? '';
+        // CLI 模式检测
+        if (PHP_SAPI === 'cli') {
+            $runMode = 'cli';
+        } elseif (function_exists('frankenphp_handle_request')) {
+            $runMode = 'worker';
+        } elseif (!empty($envMode)) {
+            $runMode = 'worker';
+        } elseif (stripos($serverSoftware, 'FrankenPHP') !== false || stripos($serverSoftware, 'Caddy') !== false) {
+            $runMode = 'worker';
+        } else {
+            $runMode = 'cgi';
+        }
+        if (!defined('RUN_MODE')) {
+            define('RUN_MODE', $runMode);
+        }
     }
 }

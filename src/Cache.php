@@ -46,10 +46,16 @@ class Cache
     private string $driver = '';
 
     /**
-     * 是否在 FrankenPHP 环境中
-     * @var bool
+     * 垃圾回收锁文件
+     * @var string
      */
-    private bool $isFrankenphp = false;
+    private string $gcLockFile;
+
+    /**
+     * 垃圾回收概率
+     * @var float
+     */
+    private float $gcProbability = 0.01;
 
     /**
      * @param Config $config 配置实例
@@ -60,7 +66,6 @@ class Cache
         $this->config = $config;
         $this->prefix = $this->config->get('redis.prefix', 'restina:');
         $this->driver = $this->config->get('app.cache', 'file');
-        $this->isFrankenphp = function_exists('frankenphp_handle_request');
 
         // 检查Redis扩展是否可用
         if (!extension_loaded('redis')) {
@@ -74,7 +79,7 @@ class Cache
                     $this->redis = new Redis($config);
 
                     // 在 FrankenPHP 环境中，可能需要更严格的连接测试
-                    if ($this->isFrankenphp) {
+                    if (RUN_MODE === 'worker') {
                         // 可能需要配置持久连接或连接池
                         $this->testAndReconnect();
                     } else {
@@ -105,6 +110,94 @@ class Cache
             $this->cacheDir = rtrim($cacheDir, DIRECTORY_SEPARATOR);
             if (!is_dir($this->cacheDir)) {
                 mkdir($this->cacheDir, 0755, true);
+            }
+            $this->gcLockFile = $this->cacheDir . DIRECTORY_SEPARATOR . '.gc_lock';
+        }
+    }
+
+    /**
+     * 异步概率性清理过期文件缓存
+     */
+    private function scheduleGc(): void
+    {
+        // 只在文件缓存模式下执行
+        if ($this->useRedis) {
+            return;
+        }
+
+        // 以一定概率检查是否需要执行 GC
+        if (mt_rand(1, 10000) <= ($this->gcProbability * 10000)) {
+            $this->performGcIfNotRunning();
+        }
+    }
+
+    /**
+     * 检查 GC 是否正在运行，如果没有则执行
+     */
+    private function performGcIfNotRunning(): void
+    {
+        $lockFile = $this->gcLockFile;
+
+        // 尝试获取锁
+        $fp = fopen($lockFile, 'w');
+        if (!$fp) {
+            return; // 无法创建锁文件，跳过本次 GC
+        }
+
+        // 使用文件锁确保只有一个进程执行 GC
+        if (!flock($fp, LOCK_EX | LOCK_NB)) {
+            fclose($fp);
+            return; // 其他进程正在执行 GC，跳过
+        }
+
+        try {
+            // 再次确认时间间隔，避免频繁执行
+            $lastGcTime = file_exists($lockFile . '.timestamp')
+                ? (int)file_get_contents($lockFile . '.timestamp')
+                : 0;
+
+            // 最少间隔5分钟执行一次 GC
+            if (time() - $lastGcTime < 300) {
+                return;
+            }
+
+            // 记录开始时间
+            file_put_contents($lockFile . '.timestamp', (string)time());
+
+            // 执行实际的 GC 操作
+            $this->doGc();
+        } finally {
+            // 释放锁
+            flock($fp, LOCK_UN);
+            fclose($fp);
+            unlink($lockFile);
+        }
+    }
+
+    /**
+     * 执行实际的垃圾回收
+     */
+    private function doGc(): void
+    {
+        $files = glob($this->cacheDir . DIRECTORY_SEPARATOR . '*.cache');
+        if (!$files) {
+            return;
+        }
+
+        $now = time();
+        $batchSize = 50; // 分批处理，避免长时间占用
+        $count = 0;
+
+        foreach ($files as $file) {
+            if (++$count % $batchSize === 0) {
+                usleep(1000); // 每处理一批暂停1ms，减少系统负载
+            }
+
+            if (file_exists($file)) {
+                $cacheData = @unserialize(file_get_contents($file));
+                if ($cacheData === false || $cacheData['expires_at'] < $now) {
+                    @unlink($file);
+                }
             }
         }
     }
@@ -153,7 +246,7 @@ class Cache
         }
 
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
@@ -175,14 +268,16 @@ class Cache
         }
 
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
         if ($this->useRedis) {
             return $this->getRedisCache($key, $default);
         } else {
-            return $this->getFileCache($key, $default);
+            $result = $this->getFileCache($key, $default);
+            $this->scheduleGc(); // 调度异步 GC
+            return $result;
         }
     }
 
@@ -196,14 +291,16 @@ class Cache
         }
 
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
         if ($this->useRedis) {
             return $this->hasRedisCache($key);
         } else {
-            return $this->hasFileCache($key);
+            $result = $this->hasFileCache($key);
+            $this->scheduleGc(); // 调度异步 GC
+            return $result;
         }
     }
 
@@ -213,7 +310,7 @@ class Cache
     public function delete(string $key): bool
     {
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
@@ -230,7 +327,7 @@ class Cache
     public function clear(): void
     {
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
@@ -247,7 +344,7 @@ class Cache
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
@@ -289,7 +386,7 @@ class Cache
     public function setMultiple(iterable $values, int $ttl = 3600): bool
     {
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
@@ -325,7 +422,7 @@ class Cache
     public function deleteMultiple(iterable $keys): bool
     {
         // 在 FrankenPHP 环境中，检查 Redis 连接状态
-        if ($this->isFrankenphp && $this->useRedis) {
+        if (RUN_MODE === 'worker' && $this->useRedis) {
             $this->testAndReconnect();
         }
 
