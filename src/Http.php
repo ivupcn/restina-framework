@@ -262,10 +262,11 @@ class Http
         ]);
 
         $data = [
-            'error' => 'Validation Error',
-            'message' => $e->getMessage()
+            'code' => 1,
+            'message' => $e->getMessage(),
+            'data' => null
         ];
-        return $this->app->response->withJson($data, 400);
+        return $this->app->response->withJson($data, 422);
     }
 
     /**
@@ -281,8 +282,9 @@ class Http
             'request' => $request
         ]);
         $data = [
-            'error' => 'Internal Error',
-            'message' => $e->getMessage()
+            'code' => 1,
+            'message' => $e->getMessage(),
+            'data' => null
         ];
         $statusCode = $e->getCode();
         return $this->app->response->withJson($data, $statusCode);
@@ -329,23 +331,23 @@ class Http
         // 获取token
         $token = trim($matches[1]);
         // 验证并获取 token 数据（允许过期）
-        $tokenData = $this->app->jwt->getTokenDataAllowExpired($token);
-        if (!isset($tokenData['id'])) {
+        $tokenData = $this->app->jwt->verifyTokenBasic($token);
+        if (!isset($tokenData->data->id)) {
             throw new \Exception('Token 的载荷数据无效', 401);
         }
         // 检查必要字段是否存在
-        if (!isset($tokenData['exp'])) {
+        if (!isset($tokenData->exp)) {
             throw new \Exception('Token 缺少过期时间', 401);
         }
         // 检查是否过期
-        $isExpired = $tokenData['exp'] < time();
+        $isExpired = $tokenData->exp < time();
         if ($isExpired) {
             // 检查刷新令牌是否已过期
             // 如果refresh_exp不存在，视为刷新已过期
-            if (!isset($tokenData['refresh_exp'])) {
+            if (!isset($tokenData->refresh_exp)) {
                 throw new \Exception('Token 已过期，且没有可用的刷新信息', 401);
             }
-            $isRefreshExpired = $tokenData['refresh_exp'] < time();
+            $isRefreshExpired = $tokenData->refresh_exp < time();
             if ($isRefreshExpired) {
                 throw new \Exception('Token 已过期，且已超出刷新时限', 401);
             }
@@ -356,9 +358,13 @@ class Http
                     // 刷新Token并更新请求头
                     $newToken = $this->app->jwt->refreshToken($token);
                     $request = $request->withHeader('Authorization', 'Bearer ' . $newToken);
-                    $tokenData = $this->app->jwt->getTokenData($newToken);
                     // 将新的Token信息附加到请求属性中，供后续使用
                     $request = $request->withAttribute('tokenRefreshed', true)->withAttribute('newToken', $newToken);
+                    // 重新验证新token，确保其有效性
+                    $newTokenData = $this->app->jwt->verifyTokenBasic($newToken);
+                    if (!isset($newTokenData->data->id)) {
+                        throw new \Exception('刷新后的Token无效', 401);
+                    }
                 } catch (\Exception $e) {
                     throw new \Exception('Token 已过期，且刷新失败：' . $e->getMessage(), 401);
                 }
@@ -367,7 +373,7 @@ class Http
             }
         }
         // 将用户信息附加到请求属性中，供后续使用
-        $request = $request->withAttribute('requestUser', null)->withAttribute('requestUserId', intval($tokenData['id']));
+        $request = $request->withAttribute('requestUser', null)->withAttribute('requestUserId', intval($tokenData->data->id));
         // 触发JWT认证成功钩子，允许开发者在此处进行额外处理（例如加载用户信息）
         return Hook::applyFilters('jwt.user', $request);
     }
@@ -553,14 +559,21 @@ class Http
         $paramName = $param->getName();
 
         if (isset($paramRules[$paramName])) {
+            $rules = Validator::extractRule($paramRules[$paramName]);
+            $isOptional = in_array('optional', array_column($rules, 'name'));
+
+            // 如果值为 null 且有 optional 规则，则直接返回 null，跳过后续验证
+            if ($value === null && $isOptional) {
+                return null;
+            }
             if ($value !== null) {
                 return Validator::validate($value, $paramRules[$paramName], $paramName);
-            } elseif ($param->isDefaultValueAvailable()) {
+            }
+            if ($param->isDefaultValueAvailable()) {
                 $defaultValue = $param->getDefaultValue();
                 return Validator::validate($defaultValue, $paramRules[$paramName], $paramName);
-            } else {
-                throw new \Exception("缺少必填参数：{$paramName}", 401);
             }
+            throw new \Exception("缺少必填参数：{$paramName}", 422);
         }
 
         // 类型转换

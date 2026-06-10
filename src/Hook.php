@@ -121,7 +121,7 @@ class Hook
     /**
      * 执行管道任务（启动洋葱模型）
      * @param string $hook 管道的名称
-     * @param mixed $payload 传递给中间件的数据（如 Request 对象）
+     * @param mixed $payload 传递给中间件的数据（如 Request 对象或闭包）
      * @return mixed 返回最终的处理结果
      */
     public static function runPipe(string $hook, $payload): mixed
@@ -135,18 +135,27 @@ class Hook
         }
 
         $pipes = self::$pipes[$hook];
+
+        // 如果 payload 是闭包，它应该是最终的处理器
+        $finalHandler = is_callable($payload) ? $payload : function () use ($payload) {
+            return $payload;
+        };
+
         // 使用 reduce 模式构建中间件链
         $stack = array_reduce(
             array_reverse($pipes),
             function ($next, $pipe) {
-                return function ($payload) use ($pipe, $next) {
-                    return $pipe['callback']($payload, $next);
+                return function ($request) use ($pipe, $next) {
+                    return $pipe['callback']($request, $next);
                 };
             },
-            function ($payload) {
-                return $payload;
-            }  // 默认终点函数
+            $finalHandler  // 最终的处理器
         );
+
+        // 如果 payload 不是 Request 对象，我们需要从全局创建
+        if (!is_object($payload) || !($payload instanceof \Psr\Http\Message\ServerRequestInterface)) {
+            $payload = \Restina\Request::createFromGlobals();
+        }
 
         return $stack($payload);
     }
@@ -279,8 +288,10 @@ class Hook
         self::$initialized = true;
 
         self::setConfig($config);
+
         self::registerActions(self::getActions());
         self::registerFilters(self::getFilters());
+
         self::registerPipes(self::getPipes());
     }
 
@@ -345,14 +356,38 @@ class Hook
     private static function registerSingleHandler(string $hook, array $handler, callable $registrationFunction): void
     {
         $priority = 0;
-        if (isset($handler[2])) {
-            $priority = (int) $handler[2];
+        $constructorArgs = null;
+
+        // 解析配置格式：[class, method, priority] 或 [class, method, priority, [constructorArgs]]
+        if (isset($handler[3]) && is_array($handler[3])) {
+            // [class, method, priority, [constructorArgs]] 格式
+            $constructorArgs = $handler[3];
+            $priority = isset($handler[2]) ? (int) $handler[2] : 0;
+        } elseif (isset($handler[2])) {
+            if (is_array($handler[2])) {
+                // [class, method, [constructorArgs]] 格式（无优先级）
+                $constructorArgs = $handler[2];
+                $priority = 0;
+            } else {
+                // [class, method, priority] 格式
+                $priority = (int) $handler[2];
+            }
         } elseif (isset($handler[1]) && is_int($handler[1])) {
             $priority = (int) $handler[1];
         }
 
         if (isset($handler[0]) && is_string($handler[0]) && class_exists($handler[0])) {
-            $instance = new $handler[0]();
+            // 如果有构造函数参数，使用参数实例化
+            if ($constructorArgs !== null) {
+                try {
+                    $instance = new $handler[0](...$constructorArgs);
+                } catch (\Throwable $e) {
+                    return;
+                }
+            } else {
+                $instance = new $handler[0]();
+            }
+
             $method = $handler[1];
             if (is_string($method) && method_exists($instance, $method)) {
                 $registrationFunction($hook, [$instance, $method], $priority);

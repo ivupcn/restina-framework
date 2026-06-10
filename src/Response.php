@@ -316,7 +316,6 @@ class Response extends BaseResponse
         int $encodingOptions = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
     ): static {
         $responseData = [
-            'success' => $status < 400,
             'code' => $status,
             'message' => $message,
             'data' => $data,
@@ -364,7 +363,6 @@ class Response extends BaseResponse
         int $encodingOptions = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
     ): static {
         $errorData = [
-            'success' => false,
             'code' => $status,
             'message' => $message,
             'error' => $details,

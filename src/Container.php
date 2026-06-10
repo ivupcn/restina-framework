@@ -132,22 +132,22 @@ class Container
             if (empty($attributes)) {
                 continue; // 没有注解，跳过
             }
+            // 获取 Inject 属性的参数
+            $attribute = $attributes[0];
+            $arguments = $attribute->getArguments();
+            $id = $arguments[0] ?? null; // 获取传递给 #[Inject()] 的参数
             // 如果 Attribute 没有指定 ID，则尝试从属性类型推断
             if ($id === null) {
                 $type = $property->getType();
                 // 检查是否存在类型声明，且不是内置类型 (int, string, array 等)
-                if (!$type instanceof \ReflectionNamedType || $type->isBuiltin()) {
+                if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
                     $className = $reflection->getName();
                     $propName = $property->getName();
-                    throw new \InvalidArgumentException(
-                        "Cannot auto-resolve injection for property \${$propName} in class {$className}. " .
-                            "Please specify a class name in #[Inject('ClassName')] or add a valid type hint."
-                    );
+                    throw new \InvalidArgumentException("无法自动解析类 {$className} 中属性 \${$propName} 的注入。请在 #[Inject('ClassName')] 中指定类名或添加有效的类型提示。");
                 }
                 $id = $type->getName();
             }
             if ($id) {
-                $property->setAccessible(true);
                 $property->setValue($instance, $this->get($id));
             }
         }

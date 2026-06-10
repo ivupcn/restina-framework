@@ -38,7 +38,6 @@ class Jwt
         $issuedAt = time();
         $expireAt = $issuedAt + ($customExpireTime ?? $this->expireTime);
         $refreshExpireAt = $issuedAt + ($customRefreshExpireTime ?? $this->refreshExpireTime);
-
         $token = [
             'iat' => $issuedAt,          // 签发时间
             'exp' => $expireAt,          // 过期时间
@@ -59,6 +58,19 @@ class Jwt
             FirebaseJWT::$leeway = $this->leeway;
             $decoded = FirebaseJWT::decode($token, new Key($this->secret, $this->algorithm));
             return $decoded;
+        } catch (ExpiredException $e) {
+            // Token 已过期，但仍然返回解码后的数据
+            // 临时禁用过期检查
+            $originalLeeway = FirebaseJWT::$leeway;
+            FirebaseJWT::$leeway = PHP_INT_MAX; // 设置极大的 leeway 值来绕过过期检查
+            try {
+                $decoded = FirebaseJWT::decode($token, new Key($this->secret, $this->algorithm));
+                FirebaseJWT::$leeway = $originalLeeway; // 恢复原始值
+                return $decoded;
+            } catch (\Exception $innerEx) {
+                FirebaseJWT::$leeway = $originalLeeway; // 恢复原始值
+                throw new \Exception('Token verification failed: ' . $innerEx->getMessage());
+            }
         } catch (SignatureInvalidException $e) {
             throw new SignatureInvalidException('Invalid token signature');
         } catch (\Exception $e) {
@@ -75,17 +87,13 @@ class Jwt
             // 设置时间偏移量以处理时钟差异
             FirebaseJWT::$leeway = $this->leeway;
             $decoded = FirebaseJWT::decode($token, new Key($this->secret, $this->algorithm));
-            // 额外检查过期时间（虽然库本身会检查，但保留这个检查作为双重保险）
-            if (isset($decoded->exp) && $decoded->exp < time()) {
-                throw new ExpiredException('Token has expired');
-            }
             return $decoded;
         } catch (ExpiredException $e) {
             throw new ExpiredException('Token has expired');
         } catch (SignatureInvalidException $e) {
             throw new SignatureInvalidException('Invalid token signature');
         } catch (\Exception $e) {
-            throw new \Exception('Token verification failed: ' . $e->getMessage());
+            throw new \Exception('Token verification failed: ' . $e->getMessage(), 401);
         }
     }
 

@@ -410,12 +410,12 @@ class App
         if ($this->registered) {
             return;
         }
+        // 创建日志实例
+        $this->logger = new Logger($this->logPath);
         // 创建依赖注入容器
         $this->diContainer = new Container();
         // 创建响应实例
         $this->response = new Response();
-        // 创建日志实例
-        $this->logger = new Logger($this->logPath);
         // 创建缓存实例
         $this->cache = new Cache($this->config, $this->cachePath);
         // 创建数据库实例
