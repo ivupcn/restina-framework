@@ -78,7 +78,7 @@ class Validator
         }
 
         // 如果值为 null 且有 optional 规则，则跳过后续验证
-        if ($value === null && in_array('optional', array_column($rules, 'name'))) {
+        if (in_array('optional', array_column($rules, 'name')) && ($value === null || $value === '')) {
             return $value;
         }
 
