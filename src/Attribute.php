@@ -350,7 +350,7 @@ class Attribute
                     break;
                 case 'equals':
                     // 等于某个值
-                    $parameter['schema']['enum'] = [$value];
+                    $parameter['enum'] = [$value];
                     break;
                 case 'different':
                     // 不同于某个值
@@ -358,59 +358,59 @@ class Attribute
                     break;
                 case 'accepted':
                     // 布尔值接受规则
-                    $parameter['schema']['type'] = 'boolean';
+                    $parameter['type'] = 'boolean';
                     break;
                 case 'numeric':
                     // 数字验证
-                    if ($parameter['schema']['type'] !== 'number' && $parameter['schema']['type'] !== 'integer') {
-                        $parameter['schema']['type'] = 'number';
+                    if ($parameter['type'] !== 'number' && $parameter['type'] !== 'integer') {
+                        $parameter['type'] = 'number';
                     }
                     break;
                 case 'integer':
                     // 整数验证
-                    $parameter['schema']['type'] = 'integer';
+                    $parameter['type'] = 'integer';
                     break;
                 case 'boolean':
                     // 布尔值验证
-                    $parameter['schema']['type'] = 'boolean';
+                    $parameter['type'] = 'boolean';
                     break;
                 case 'array':
                     // 数组验证
-                    $parameter['schema']['type'] = 'array';
+                    $parameter['type'] = 'array';
                     break;
                 case 'length':
                     // 固定长度
-                    $parameter['schema']['minLength'] = (int) $value;
-                    $parameter['schema']['maxLength'] = (int) $value;
+                    $parameter['minLength'] = (int) $value;
+                    $parameter['maxLength'] = (int) $value;
                     break;
                 case 'lengthBetween':
                     // 长度范围
                     $range = explode(',', $value);
                     if (count($range) === 2) {
-                        $parameter['schema']['minLength'] = (int) $range[0];
-                        $parameter['schema']['maxLength'] = (int) $range[1];
+                        $parameter['minLength'] = (int) $range[0];
+                        $parameter['maxLength'] = (int) $range[1];
                     }
                     break;
                 case 'lengthMin':
                     // 最小长度
-                    $parameter['schema']['minLength'] = (int) $value;
+                    $parameter['minLength'] = (int) $value;
                     break;
                 case 'lengthMax':
                     // 最大长度
-                    $parameter['schema']['maxLength'] = (int) $value;
+                    $parameter['maxLength'] = (int) $value;
                     break;
                 case 'min':
                     // 最小值
-                    $parameter['schema']['minimum'] = (int) $value;
+                    $parameter['minimum'] = (int) $value;
                     break;
                 case 'max':
                     // 最大值
-                    $parameter['schema']['maximum'] = (int) $value;
+                    $parameter['maximum'] = (int) $value;
                     break;
                 case 'in':
                     // 允许的值
                     $values = explode(',', $value);
-                    $parameter['schema']['enum'] = array_map('trim', $values);
+                    $parameter['enum'] = array_map('trim', $values);
                     break;
                 case 'notIn':
                     // 禁止的值（Swagger不直接支持）
@@ -418,44 +418,44 @@ class Attribute
                     break;
                 case 'ip':
                     // IP地址格式
-                    $parameter['schema']['format'] = 'ipv4';
+                    $parameter['format'] = 'ipv4';
                     break;
                 case 'email':
                     // 邮箱格式
-                    $parameter['schema']['format'] = 'email';
+                    $parameter['format'] = 'email';
                     break;
                 case 'url':
                     // URL格式
-                    $parameter['schema']['format'] = 'uri';
+                    $parameter['format'] = 'uri';
                     break;
                 case 'urlActive':
                     // 活跃URL（增强的URL验证）
-                    $parameter['schema']['format'] = 'uri';
+                    $parameter['format'] = 'uri';
                     break;
                 case 'alpha':
                     // 字母验证
-                    $parameter['schema']['pattern'] = '^[a-zA-Z]+$';
+                    $parameter['pattern'] = '^[a-zA-Z]+$';
                     break;
                 case 'alphaNum':
                     // 字母数字验证
-                    $parameter['schema']['pattern'] = '^[a-zA-Z0-9]+$';
+                    $parameter['pattern'] = '^[a-zA-Z0-9]+$';
                     break;
                 case 'slug':
                     // URL友好格式
-                    $parameter['schema']['pattern'] = '^[a-z0-9_-]+$';
+                    $parameter['pattern'] = '^[a-z0-9_-]+$';
                     break;
                 case 'regex':
                     // 正则表达式
-                    $parameter['schema']['pattern'] = $value;
+                    $parameter['pattern'] = $value;
                     break;
                 case 'date':
                     // 日期格式
-                    $parameter['schema']['format'] = 'date';
+                    $parameter['format'] = 'date';
                     break;
                 case 'dateFormat':
                     // 指定日期格式（Swagger不直接支持，但可用于文档说明）
                     $parameter['description'] .= ' (日期格式: ' . $value . ')';
-                    $parameter['schema']['format'] = 'date';
+                    $parameter['format'] = 'date';
                     break;
                 case 'dateBefore':
                     // 日期必须早于某日期（Swagger不直接支持）
@@ -471,7 +471,7 @@ class Attribute
                     break;
                 case 'creditCard':
                     // 信用卡格式（Swagger不直接支持，但可以用正则）
-                    $parameter['schema']['pattern'] = '^[0-9 ]+$';
+                    $parameter['pattern'] = '^[0-9 ]+$';
                     break;
             }
         }
