@@ -176,6 +176,14 @@ class Http
             return $this->handleValidationException($request, $e);
         } catch (\Exception $e) {
             return $this->handleGeneralException($request, $e);
+        } catch (\Throwable $e) {
+            // 捕获 TypeError、TypeError 等不属于 Exception 的错误
+            $data = [
+                'code' => 500,
+                'message' => $e->getMessage(),
+                'data' => null
+            ];
+            return $this->app->response->withJson($data, 500);
         }
     }
 

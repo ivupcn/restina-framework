@@ -42,9 +42,10 @@ class ExceptionHandler
     public function handle(ServerRequestInterface $request, Throwable $exception): Response
     {
         $this->logException($exception);
+        $status = $exception->getCode() ?: 500;
         return Response::error(
             message: $exception->getMessage(),
-            status: $exception->getCode(),
+            status: $status,
             details: $this->getErrorDetails($exception)
         );
     }
