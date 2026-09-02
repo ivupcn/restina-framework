@@ -93,6 +93,14 @@ class App
     }
 
     /**
+     * 重置单例实例（主要用于测试）
+     */
+    public static function resetInstance(): void
+    {
+        self::$instance = null;
+    }
+
+    /**
      * 构造函数
      */
     public function __construct()

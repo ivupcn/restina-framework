@@ -348,11 +348,13 @@ class Router
                     $request = $request->withAttribute($key, $value);
                 }
                 $pipeName = implode('_', $matchedRoute['methods']) . '_' . md5($matchedRoute['path']);
-                // 注册路由特定的中间件管道
-                foreach ($matchedRoute['middlewares'] as $index => $middleware) {
-                    Hook::addPipe($pipeName, function ($request, $next) use ($middleware) {
-                        return $middleware($request, $next);
-                    }, 10 + $index);
+                // 仅在首次请求时注册路由特定的中间件管道，避免 Worker 模式下重复注册导致内存泄漏
+                if (!Hook::hasPipe($pipeName) && !empty($matchedRoute['middlewares'])) {
+                    foreach ($matchedRoute['middlewares'] as $index => $middleware) {
+                        Hook::addPipe($pipeName, function ($request, $next) use ($middleware) {
+                            return $middleware($request, $next);
+                        }, 10 + $index);
+                    }
                 }
                 return Hook::runPipe($pipeName, function () use ($matchedRoute, $request, $params) {
                     return call_user_func($matchedRoute['handler'], $request, $params);
