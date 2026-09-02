@@ -152,12 +152,16 @@ class Hook
             $finalHandler  // 最终的处理器
         );
 
-        // 如果 payload 不是 Request 对象，我们需要从全局创建
-        if (!is_object($payload) || !($payload instanceof \Psr\Http\Message\ServerRequestInterface)) {
-            $payload = \Restina\Request::createFromGlobals();
+        // 确定传入中间件链的初始 Request 对象
+        if ($payload instanceof \Psr\Http\Message\ServerRequestInterface) {
+            // payload 本身就是 Request，直接传递
+            $initialRequest = $payload;
+        } else {
+            // payload 是闭包或其他类型，从全局创建 Request
+            $initialRequest = \Restina\Request::createFromGlobals();
         }
 
-        return $stack($payload);
+        return $stack($initialRequest);
     }
 
     /**
