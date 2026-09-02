@@ -129,15 +129,10 @@ class Attribute
             );
             foreach ($iterator as $file) {
                 if ($file->getExtension() === 'php') {
-                    // 获取文件内容并使用正则表达式提取命名空间和类名
                     $content = file_get_contents($file->getPathname());
-                    // 查找类名
-                    if (
-                        preg_match('/namespace\s+([^\s;]+)/', $content, $nsMatches) &&
-                        preg_match('/class\s+(\w+)/', $content, $classMatches)
-                    ) {
-                        // 获取命名空间和类名并组合成完整类名
-                        $className = $nsMatches[1] . '\\' . $classMatches[1];
+                    $parsed = self::extractNamespaceAndClass($content);
+                    if ($parsed !== null) {
+                        $className = $parsed[0] . '\\' . $parsed[1];
                         if (class_exists($className)) {
                             $classes[] = $className;
                         }
@@ -148,6 +143,94 @@ class Attribute
             error_log("目录扫描错误: " . $e->getMessage());
         }
         return $classes;
+    }
+
+    /**
+     * 使用 PHP tokenizer 从文件内容中提取命名空间和类名
+     * 相比正则解析，能正确跳过注释和字符串中的 namespace/class 关键字
+     *
+     * @param string $content PHP 文件内容
+     * @return array|null [namespace, className] 或 null
+     */
+    private static function extractNamespaceAndClass(string $content): ?array
+    {
+        $tokens = token_get_all($content);
+        $namespace = null;
+        $className = null;
+        $count = count($tokens);
+
+        for ($i = 0; $i < $count; $i++) {
+            $token = $tokens[$i];
+
+            // 跳过非数组 token（标点符号等）
+            if (!is_array($token)) {
+                continue;
+            }
+
+            // 提取命名空间
+            if ($token[0] === T_NAMESPACE) {
+                $nsParts = [];
+                // 向后扫描收集命名空间各部分（T_NAME_QUALIFIED 或 T_STRING + T_NS_SEPARATOR）
+                for ($j = $i + 1; $j < $count; $j++) {
+                    $next = $tokens[$j];
+                    if (is_array($next)) {
+                        if ($next[0] === T_NAME_QUALIFIED || $next[0] === T_STRING) {
+                            $nsParts[] = $next[1];
+                        } elseif ($next[0] === T_NS_SEPARATOR) {
+                            continue;
+                        } elseif ($next[0] === T_WHITESPACE) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        // 遇到分号或花括号结束
+                        break;
+                    }
+                }
+                if (!empty($nsParts)) {
+                    $namespace = implode('\\', $nsParts);
+                }
+            }
+
+            // 提取类名（跳过 T_DOUBLE_COLONS 后的 class，如 Foo::class）
+            if ($token[0] === T_CLASS) {
+                // 检查前一个有效 token 是否是 ::（T_DOUBLE_COLON），如果是则跳过
+                $prevToken = null;
+                for ($k = $i - 1; $k >= 0; $k--) {
+                    if (is_array($tokens[$k]) && $tokens[$k][0] === T_WHITESPACE) {
+                        continue;
+                    }
+                    $prevToken = $tokens[$k];
+                    break;
+                }
+                if (is_array($prevToken) && $prevToken[0] === T_DOUBLE_COLON) {
+                    continue;
+                }
+
+                // 向后扫描找到类名
+                for ($j = $i + 1; $j < $count; $j++) {
+                    $next = $tokens[$j];
+                    if (is_array($next)) {
+                        if ($next[0] === T_WHITESPACE) {
+                            continue;
+                        }
+                        if ($next[0] === T_STRING) {
+                            $className = $next[1];
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                // 找到类名后提前返回
+                if ($className !== null && $namespace !== null) {
+                    return [$namespace, $className];
+                }
+            }
+        }
+
+        return ($namespace !== null && $className !== null) ? [$namespace, $className] : null;
     }
 
     /**
