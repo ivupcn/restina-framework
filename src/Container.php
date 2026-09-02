@@ -135,7 +135,7 @@ class Container
             // 获取 Inject 属性的参数
             $attribute = $attributes[0];
             $arguments = $attribute->getArguments();
-            $id = $arguments[0] ?? null; // 获取传递给 #[Inject()] 的参数
+            $id = $arguments['id'] ?? $arguments[0] ?? null; // 兼容命名参数和位置参数
             // 如果 Attribute 没有指定 ID，则尝试从属性类型推断
             if ($id === null) {
                 $type = $property->getType();
