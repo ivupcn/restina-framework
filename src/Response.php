@@ -342,7 +342,14 @@ class Response extends BaseResponse
         array $headers = [],
         int $encodingOptions = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
     ): static {
-        return self::json($data, $status, $message, $headers, $encodingOptions);
+        $responseData = [
+            'code' => $status,
+            'message' => $message,
+            'data' => $data,
+            'timestamp' => date('c')
+        ];
+
+        return self::json($responseData, $status, $headers, $encodingOptions);
     }
 
     /**
@@ -469,7 +476,6 @@ class Response extends BaseResponse
      */
     public function withStatus($code, $reasonPhrase = ''): static
     {
-        $new = clone $this;
         $reasonPhrase = $reasonPhrase ?: self::getReasonPhraseFor($code);
         return parent::withStatus($code, $reasonPhrase);
     }
