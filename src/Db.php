@@ -6,7 +6,6 @@ namespace Restina;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Connection;
 use Restina\Config;
-use InvalidArgumentException;
 use Exception;
 
 /**
@@ -58,11 +57,9 @@ class Db
                 }
 
                 try {
-                    if (isset($connection['read']) && isset($connection['write'])) {
-                        $this->setupReadWriteConnection($name, $connection);
-                    } else {
-                        $this->capsule->addConnection($connection, $name);
-                    }
+                    // 直接传递给 addConnection，Illuminate ConnectionFactory 会自动检测
+                    // read/write 键并创建 ReadWriteConnection，实现透明读写分离
+                    $this->capsule->addConnection($connection, $name);
                 } catch (Exception $e) {
                     error_log("添加数据库连接 '{$name}' 失败: " . $e->getMessage());
                 }
@@ -104,79 +101,6 @@ class Db
             'engine' => $dbConfig['engine'] ?? null,
             'options' => $dbConfig['options'] ?? [],
         ];
-    }
-
-    /**
-     * 设置读写分离连接
-     *
-     * @param string $name
-     * @param array $config
-     * @throws InvalidArgumentException
-     */
-    private function setupReadWriteConnection(string $name, array $config): void
-    {
-        // 验证配置结构
-        if (empty($config['write']) || !is_array($config['write'])) {
-            throw new InvalidArgumentException("读写分离连接 '{$name}' 必须包含 'write' 配置");
-        }
-        if (empty($config['read']) || !is_array($config['read'])) {
-            throw new InvalidArgumentException("读写分离连接 '{$name}' 必须包含 'read' 配置");
-        }
-
-        // 提取公共配置项（去除 read/write 特有部分）
-        $baseConfig = $config;
-        unset($baseConfig['read'], $baseConfig['write']);
-
-        // --- 处理写连接 (Write) ---
-        $writeHosts = $config['write'];
-
-        // 判断是单个配置还是数组配置
-        $firstWrite = is_array($writeHosts) && isset($writeHosts[0]) ? $writeHosts[0] : $writeHosts;
-
-        // 使用智能合并
-        $writeConfig = $this->mergeConfig($baseConfig, $firstWrite);
-
-        // 强制标记为写连接（可选，用于调试）
-        $writeConfig['prefix'] = ($writeConfig['prefix'] ?? '') . 'write_';
-
-        // 添加写连接，使用 {$name}_write 作为键名，避免与读连接冲突
-        $this->capsule->addConnection($writeConfig, "{$name}_write");
-
-        // --- 处理读连接 (Read) ---
-        $readHosts = $config['read'];
-
-        foreach ($readHosts as $index => $readHost) {
-            if (!is_array($readHost)) {
-                continue; // 跳过无效配置
-            }
-
-            // 智能合并
-            $readConfig = $this->mergeConfig($baseConfig, $readHost);
-
-            // 添加读连接，使用 {$name}_read_{$index} 作为键名
-            $this->capsule->addConnection($readConfig, "{$name}_read_{$index}");
-        }
-    }
-
-    /**
-     * 智能合并配置数组，只覆盖非空值
-     * @param array $parent 父级配置（基础配置）
-     * @param array $child  子级配置（覆盖配置）
-     * @return array
-     */
-    private function mergeConfig(array $parent, array $child): array
-    {
-        $result = $parent;
-
-        foreach ($child as $key => $value) {
-            // 只有当值不为 null 且不为空字符串时才覆盖
-            // 注意：0 是有效值，不能被过滤掉
-            if ($value !== null && $value !== '') {
-                $result[$key] = $value;
-            }
-        }
-
-        return $result;
     }
 
     /**
