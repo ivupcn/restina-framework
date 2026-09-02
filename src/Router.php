@@ -365,7 +365,7 @@ class Router
             }
         } else {
             // 未找到路径 (404)
-            throw new \Exception('您访问的资源不存在', 410);
+            throw new \Exception('您访问的资源不存在', 404);
         }
     }
 
