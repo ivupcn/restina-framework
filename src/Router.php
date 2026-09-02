@@ -335,6 +335,9 @@ class Router
                     $allowedMethods = array_merge($allowedMethods, $route['methods']);
                 }
             }
+            // 收集该路径下所有已注册的 HTTP 方法
+            $allowedMethodsList = implode(', ', array_unique($allowedMethods));
+
             if ($requestMethod === 'OPTIONS') {
                 return Response::create()
                     ->withStatus(204)
@@ -356,7 +359,6 @@ class Router
                 });
             } else {
                 // 路径存在但方法不允许
-                $allowedMethodsList = implode(', ', array_unique($allowedMethods));
                 throw new \Exception('请求方法不被允许。必须使用 ' . $allowedMethodsList . ' 方法', 405);
             }
         } else {
