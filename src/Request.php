@@ -25,51 +25,14 @@ class Request
      */
     public static function createFromGlobals(): ServerRequestInterface
     {
-        if (RUN_MODE === 'worker') {
-            // 在 FrankenPHP 环境下，使用特殊处理
-            return self::createFromWorker();
-        }
-        // 预先读取输入流，供多处使用
-        $inputContent = file_get_contents('php://input') ?: '';
-
-        // 获取请求方法
-        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-
-        // 获取 URI
-        $uri = self::createUri();
-
-        // 创建请求对象
-        $request = new ServerRequest($method, $uri);
-
-        // 添加请求头
-        foreach (self::getRequestHeaders() as $name => $value) {
-            $request = $request->withAddedHeader($name, $value);
-        }
-
-        // 添加请求体
-        $request = $request->withBody(self::createBody($inputContent));
-
-        // 添加查询参数
-        $request = $request->withQueryParams($_GET ?? []);
-
-        // 添加 Cookie
-        $request = $request->withCookieParams($_COOKIE ?? []);
-
-        // 添加上传文件
-        $request = $request->withUploadedFiles(self::createUploadedFiles($_FILES ?? []));
-
-        // 添加请求属性
-        $request = $request->withParsedBody(self::parseRequestBody($inputContent));
-
-        return $request;
+        return self::buildRequest();
     }
 
     /**
-     * 从 FrankenPHP 环境创建请求对象
+     * 构建 ServerRequest 对象
      */
-    private static function createFromWorker(): ServerRequestInterface
+    private static function buildRequest(): ServerRequestInterface
     {
-        // 在 FrankenPHP 环境中，全局变量依然可用
         $inputContent = file_get_contents('php://input') ?: '';
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         $uri = self::createUri();
