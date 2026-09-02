@@ -254,9 +254,7 @@ class Hook
      */
     public static function getActions(): array
     {
-        return is_array(self::$config['actions'] ?? [])
-            ? self::$config['actions']
-            : [];
+        return self::$config['actions'] ?? [];
     }
 
     /**
@@ -264,9 +262,7 @@ class Hook
      */
     public static function getFilters(): array
     {
-        return is_array(self::$config['filters'] ?? [])
-            ? self::$config['filters']
-            : [];
+        return self::$config['filters'] ?? [];
     }
 
     /**
@@ -274,9 +270,7 @@ class Hook
      */
     public static function getPipes(): array
     {
-        return is_array(self::$config['pipes'] ?? [])
-            ? self::$config['pipes']
-            : [];
+        return self::$config['pipes'] ?? [];
     }
 
     /**
