@@ -293,7 +293,7 @@ class Validator
                 if (!checkdnsrr($host)) {
                     throw new InvalidArgumentException("参数 '{$paramName}' 的域名无法解析");
                 }
-                brreak;
+                break;
 
             case 'alpha':
                 if (!is_string($value) || !ctype_alpha($value)) {
