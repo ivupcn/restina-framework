@@ -177,10 +177,25 @@ class Http
         } catch (\Exception $e) {
             return $this->handleGeneralException($request, $e);
         } catch (\Throwable $e) {
-            // 捕获 TypeError、TypeError 等不属于 Exception 的错误
+            // 捕获 TypeError 等不属于 Exception 的错误
+            Hook::doAction('request.error', [
+                'error' => $e,
+                'request' => $request
+            ]);
+
+            $this->app->logger->error('Unhandled throwable: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            $message = $this->app->isDebugMode()
+                ? $e->getMessage()
+                : '服务器内部错误';
+
             $data = [
                 'code' => 500,
-                'message' => $e->getMessage(),
+                'message' => $message,
                 'data' => null
             ];
             return $this->app->response->withJson($data, 500);
