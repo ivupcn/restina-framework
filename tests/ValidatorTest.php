@@ -478,4 +478,152 @@ class ValidatorTest extends TestCase
         $this->assertSame('anything', Validator::validate('anything', '', 'val'));
         $this->assertNull(Validator::validate(null, '', 'val'));
     }
+
+    // ─── length 对整数的支持 ─────────────────────────────────
+
+    public function testLengthWithIntegerValue(): void
+    {
+        // 整数 123 转为字符串 '123'，长度为 3
+        $this->assertSame(123, Validator::validate(123, 'length:3', 'code'));
+    }
+
+    public function testLengthWithIntegerValueFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate(12345, 'length:3', 'code');
+    }
+
+    public function testLengthWithArrayThrowsException(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必须是字符串或数字');
+        Validator::validate([1, 2], 'length:3', 'items');
+    }
+
+    // ─── lengthMin / lengthMax 边界条件 ──────────────────────
+
+    public function testLengthMinExactBoundary(): void
+    {
+        // 长度恰好等于 min
+        $this->assertSame('ab', Validator::validate('ab', 'lengthMin:2', 'name'));
+    }
+
+    public function testLengthMaxExactBoundary(): void
+    {
+        // 长度恰好等于 max
+        $this->assertSame('abcde', Validator::validate('abcde', 'lengthMax:5', 'name'));
+    }
+
+    public function testLengthBetweenExactBoundaries(): void
+    {
+        $this->assertSame('ab', Validator::validate('ab', 'lengthBetween:2,5', 'name'));
+        $this->assertSame('abcde', Validator::validate('abcde', 'lengthBetween:2,5', 'name'));
+    }
+
+    // ─── 白名单正则模式 ─────────────────────────────────────
+
+    public function testRegexWhitelistedPhone(): void
+    {
+        $this->assertSame(
+            '13800138000',
+            Validator::validate('13800138000', 'regex:phone', 'tel')
+        );
+    }
+
+    public function testRegexWhitelistedPhoneFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate('12345', 'regex:phone', 'tel');
+    }
+
+    public function testRegexWhitelistedZipcode(): void
+    {
+        $this->assertSame(
+            '100000',
+            Validator::validate('100000', 'regex:zipcode', 'zip')
+        );
+    }
+
+    public function testRegexWhitelistedZipcodeFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate('12345', 'regex:zipcode', 'zip');
+    }
+
+    public function testRegexWhitelistedUsername(): void
+    {
+        $this->assertSame(
+            'john_doe',
+            Validator::validate('john_doe', 'regex:username', 'user')
+        );
+    }
+
+    public function testRegexWhitelistedUsernameFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate('1bad', 'regex:username', 'user');
+    }
+
+    // ─── required 与 null / 空数组 ──────────────────────────
+
+    public function testRequiredFailsWithNullExplicit(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必填项');
+        Validator::validate(null, 'required', 'field');
+    }
+
+    public function testRequiredPassesWithZero(): void
+    {
+        // 0 不是 null 也不是空字符串，应通过
+        $this->assertSame(0, Validator::validate(0, 'required', 'count'));
+    }
+
+    public function testRequiredPassesWithArray(): void
+    {
+        $this->assertSame([1, 2], Validator::validate([1, 2], 'required', 'items'));
+    }
+
+    public function testRequiredFailsWithEmptyArray(): void
+    {
+        // 空数组不是 null 也不是 ''，required 会通过
+        // 但配合 array 规则可以验证类型
+        $this->assertSame([], Validator::validate([], 'required', 'items'));
+    }
+
+    // ─── 组合规则补充 ────────────────────────────────────────
+
+    public function testOptionalWithNullSkipsAllSubsequentRules(): void
+    {
+        // optional + required: null 值应跳过 required
+        $result = Validator::validate(null, 'optional|required', 'field');
+        $this->assertNull($result);
+    }
+
+    public function testOptionalWithEmptyStringSkipsRequired(): void
+    {
+        $result = Validator::validate('', 'optional|required', 'field');
+        $this->assertSame('', $result);
+    }
+
+    public function testNumericWithNegativeValue(): void
+    {
+        $this->assertSame('-5', Validator::validate('-5', 'numeric', 'val'));
+    }
+
+    public function testMinWithNegativeValues(): void
+    {
+        $this->assertSame(-3, Validator::validate(-3, 'min:-5', 'val'));
+    }
+
+    public function testMaxWithNegativeValues(): void
+    {
+        $this->assertSame(-10, Validator::validate(-10, 'max:-5', 'val'));
+    }
+
+    public function testMaxWithNegativeValueFails(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate(-3, 'max:-5', 'val');
+    }
 }

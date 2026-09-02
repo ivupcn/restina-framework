@@ -350,4 +350,157 @@ class HookTest extends TestCase
         $info = Hook::getHookInfo('action');
         $this->assertArrayHasKey('a', $info);
     }
+
+    public function testGetHookInfoByPipeType(): void
+    {
+        Hook::addPipe('p', function ($r, $n) { return $n($r); });
+        $info = Hook::getHookInfo('pipe');
+        $this->assertArrayHasKey('p', $info);
+    }
+
+    // ─── Pipe 补充场景 ──────────────────────────────────────
+
+    public function testPipeShortCircuit(): void
+    {
+        $log = [];
+
+        // 中间件直接返回，不调用 $next
+        Hook::addPipe('test.short', function ($request, $next) use (&$log) {
+            $log[] = 'middleware';
+            return 'short-circuited';
+        });
+
+        $result = Hook::runPipe('test.short', function () use (&$log) {
+            $log[] = 'handler';
+            return 'should-not-reach';
+        });
+
+        $this->assertSame('short-circuited', $result);
+        $this->assertSame(['middleware'], $log);
+    }
+
+    public function testRemoveSpecificPipeByCallback(): void
+    {
+        $keep = function ($request, $next) {
+            return $next($request);
+        };
+        $remove = function ($request, $next) {
+            return 'removed';
+        };
+
+        Hook::addPipe('test.specific', $keep);
+        Hook::addPipe('test.specific', $remove);
+
+        Hook::removePipe('test.specific', $remove);
+
+        $result = Hook::runPipe('test.specific', function () {
+            return 'kept';
+        });
+        $this->assertSame('kept', $result);
+    }
+
+    public function testLoadFromConfigRegistersFiltersAndPipes(): void
+    {
+        $config = [
+            'filters' => [
+                'test.cf' => [function ($v) { return strtoupper($v); }],
+            ],
+            'pipes' => [
+                'test.cp' => [function ($r, $n) { return $n($r); }],
+            ],
+        ];
+
+        Hook::loadFromConfig($config);
+
+        $this->assertTrue(Hook::hasFilter('test.cf'));
+        $this->assertTrue(Hook::hasPipe('test.cp'));
+
+        $result = Hook::applyFilters('test.cf', 'hello');
+        $this->assertSame('HELLO', $result);
+    }
+
+    public function testPipeMiddlewareModifiesRequest(): void
+    {
+        Hook::addPipe('test.reqmod', function ($request, $next) {
+            $request = $request->withHeader('X-Test', 'modified');
+            $response = $next($request);
+            return $response . '+post';
+        });
+
+        $result = Hook::runPipe('test.reqmod', function ($request) {
+            return $request->getHeaderLine('X-Test');
+        });
+
+        $this->assertSame('modified+post', $result);
+    }
+
+    public function testPipeNonCallablePayloadWithRegisteredPipes(): void
+    {
+        Hook::addPipe('test.strpayload', function ($request, $next) {
+            $result = $next($request);
+            return $result . '-via-pipe';
+        });
+
+        $result = Hook::runPipe('test.strpayload', 'base');
+        $this->assertSame('base-via-pipe', $result);
+    }
+
+    public function testPipeMultipleMiddlewareAccumulateModifications(): void
+    {
+        Hook::addPipe('test.accum', function ($request, $next) {
+            $result = $next($request);
+            return $result . '|A';
+        }, 10);
+
+        Hook::addPipe('test.accum', function ($request, $next) {
+            $result = $next($request);
+            return $result . '|B';
+        }, 20);
+
+        $result = Hook::runPipe('test.accum', function () {
+            return 'core';
+        });
+
+        // A(priority=10) 包裹 B(priority=20)，洋葱模型
+        $this->assertSame('core|B|A', $result);
+    }
+
+    // ─── RemoveFilter 精确移除 ───────────────────────────────
+
+    public function testRemoveSpecificFilterByCallback(): void
+    {
+        $keep = function ($value) {
+            return $value . '-kept';
+        };
+        $remove = function ($value) {
+            return $value . '-removed';
+        };
+
+        Hook::addFilter('test.sf', $keep);
+        Hook::addFilter('test.sf', $remove);
+
+        Hook::removeFilter('test.sf', $remove);
+
+        $result = Hook::applyFilters('test.sf', 'hello');
+        $this->assertSame('hello-kept', $result);
+    }
+
+    public function testRemoveSpecificFilterLeavesOthersUntouched(): void
+    {
+        $count = 0;
+        $keep = function ($value) use (&$count) {
+            $count++;
+            return $value;
+        };
+        $remove = function ($value) {
+            return $value . '-x';
+        };
+
+        Hook::addFilter('test.sf2', $keep);
+        Hook::addFilter('test.sf2', $remove);
+        Hook::removeFilter('test.sf2', $remove);
+
+        Hook::applyFilters('test.sf2', 'val');
+        $this->assertSame(1, $count);
+    }
 }
