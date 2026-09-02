@@ -25,8 +25,8 @@ class Http
     private Container $diContainer;
 
     /**
-     * 缓存反射信息以提高性能
-     * @var array [className::methodName => ['instance' => object, 'method' => ReflectionMethod]]
+     * 缓存反射方法信息以提高性能
+     * @var array [className::methodName => ReflectionMethod]
      */
     private static array $reflectionCache = [];
 
@@ -143,14 +143,12 @@ class Http
             $cacheKey = $class . '::' . $methodName;
 
             if (!isset(self::$reflectionCache[$cacheKey])) {
-                self::$reflectionCache[$cacheKey] = [
-                    'instance' => $this->getControllerInstance($class),
-                    'method' => (new ReflectionClass($class))->getMethod($methodName)
-                ];
+                self::$reflectionCache[$cacheKey] = (new \ReflectionClass($class))->getMethod($methodName);
             }
 
-            $controllerInstance = self::$reflectionCache[$cacheKey]['instance'];
-            $method = self::$reflectionCache[$cacheKey]['method'];
+            $method = self::$reflectionCache[$cacheKey];
+            // 每次请求创建新的控制器实例，避免 Worker 模式下属性状态跨请求泄漏
+            $controllerInstance = $this->getControllerInstance($class);
 
             // 将 app 实例附加到请求对象
             $request = $request->withAttribute('app', $this->app);
