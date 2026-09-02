@@ -539,9 +539,9 @@ class Cache
             return $default;
         }
 
-        $cacheData = unserialize(file_get_contents($filePath));
+        $cacheData = unserialize(file_get_contents($filePath), ['allowed_classes' => false]);
 
-        if ($cacheData === false) {
+        if ($cacheData === false || !is_array($cacheData)) {
             unlink($filePath); // 删除损坏的缓存文件
             return $default;
         }
@@ -566,9 +566,9 @@ class Cache
             return false;
         }
 
-        $cacheData = unserialize(file_get_contents($filePath));
+        $cacheData = unserialize(file_get_contents($filePath), ['allowed_classes' => false]);
 
-        if ($cacheData === false) {
+        if ($cacheData === false || !is_array($cacheData)) {
             unlink($filePath); // 删除损坏的缓存文件
             return false;
         }
