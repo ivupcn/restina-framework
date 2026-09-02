@@ -79,7 +79,7 @@ class Queue
      */
     private function unserializeJob(string $serializedData): ?Job
     {
-        $jobData = json_decode($jobData, true);
+        $jobData = json_decode($serializedData, true);
         if (!$jobData || !isset($jobData['class'])) {
             return null;
         }
