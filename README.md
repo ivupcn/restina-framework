@@ -71,6 +71,106 @@ http://localhost:8000
 composer update ivupcn/restina
 ~~~
 
+## 快速入门
+
+### 1. 创建项目
+
+~~~
+composer create-project ivupcn/restina my-api
+cd my-api
+~~~
+
+### 2. 配置应用
+
+编辑 `app/config.php`：
+
+~~~php
+return [
+    'app' => [
+        'name'     => 'My API',
+        'debug'    => true,          // 生产环境设为 false
+        'timezone' => 'Asia/Shanghai',
+        'cache'    => 'file',        // 'file' 或 'redis'
+    ],
+    'jwt' => [
+        'secret'            => 'your-secret-key',
+        'algorithm'         => 'HS256',
+        'expire_time'       => 3600,
+        'refresh_expire_time' => 7200,
+    ],
+    'database' => [
+        'default' => 'mysql',
+        'connections' => [
+            'mysql' => [
+                'driver'   => 'mysql',
+                'host'     => '127.0.0.1',
+                'port'     => 3306,
+                'database' => 'my_app',
+                'username' => 'root',
+                'password' => '',
+                'charset'  => 'utf8mb4',
+            ],
+        ],
+    ],
+    'redis' => [
+        'host'     => '127.0.0.1',
+        'port'     => 6379,
+        'database' => 0,
+    ],
+];
+~~~
+
+### 3. 编写第一个控制器
+
+在 `app/controllers/` 下创建 `HelloController.php`：
+
+~~~php
+<?php
+namespace App\Controllers;
+
+use Restina\attribute\Route;
+use Restina\attribute\Params;
+use Restina\attribute\enum\FieldType;
+
+class HelloController
+{
+    #[Route(methods: ['GET'], path: '/hello', jwt: false, permission: false)]
+    #[Params(field: 'name', title: '姓名', type: FieldType::STRING, rules: 'required|lengthMax:50')]
+    public function hello(string $name): array
+    {
+        return [
+            'code'    => 0,
+            'message' => "Hello, {$name}!",
+        ];
+    }
+}
+~~~
+
+### 4. 启动服务
+
+~~~
+# 内置服务器
+php restina run
+
+# 或 FrankenPHP Worker 模式（生产推荐）
+frankenphp run
+~~~
+
+访问 `http://localhost:8000/hello?name=Restina` 即可看到响应。
+
+### 5. 验证
+
+~~~
+# 运行测试
+composer test
+
+# 代码风格检查
+composer cs-check
+
+# 自动修复代码风格
+composer cs-fix
+~~~
+
 ## 目录结构
 
 ~~~
@@ -164,7 +264,7 @@ App::init()->boot()->run()->end();
 
 Restina的URL访问受路由影响。
 
-框架扫描每个类的每个方法注解，如果方法标记了 #[Route()]，将被自动添加为路由。
+框架扫描每个类的每个方法，如果方法标记了 `#[Route()]`，将被自动添加为路由。
 
 ~~~
 class DemoController
@@ -173,13 +273,11 @@ class DemoController
     public function getUsers(int $page = 1, int $limit = 10, string $sort = 'id', string $search = '')
 }
 ~~~
-以上代码表示 http 请求 GET /demo/getUsers 其实现为 DemoController:: getUsers, 其中{id}为url 的可变部分。
+以上代码表示 HTTP 请求 `GET /demo/getUsers`，其实现为 `DemoController::getUsers`。
 
-标注在类的注释里，用于指定 Controller 类中所定义的全部接口的uri 的 path。
+语法：`#[Route(methods: <method>, path: <path>, code: <code>, permission: <permission>, jwt: <jwt>, autoRefreshToken: <autoRefreshToken>)]`
 
-语法：` #[Route(methods: <method>, path: <path>, code: <code>, permission: <permission>, jwt: <jwt>, autoRefreshToken: <autoRefreshToken>)]`
-
-标注在方法的注释里，用于指定接口的路由。methods为指定的 http 方法，可以是 GET、HEAD、POST、PUT、PATCH、DELETE、OPTION、DELETE。uri 中可以带变量，用{}包围。
+`#[Route]` 标注在方法上，用于指定接口的路由。`methods` 为指定的 HTTP 方法，可以是 GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS。`path` 中可以带变量，用 `{}` 包围。
 
 ## 参数绑定
 
@@ -220,7 +318,7 @@ class DemoController
 
 ## 参数校验
 
-在"参数绑定"时，起始已经支持了两项基本的校验（类型和是否必选），如果要支持更复杂的校验规则，可以通过 @v 指定，如：
+在"参数绑定"时，其实已经支持了两项基本的校验（类型和是否必选），如果要支持更复杂的校验规则，可以通过 `#[Params(rules: '')]` 指定，如：
 
 ~~~
 /**
@@ -279,17 +377,14 @@ Restina 使用开源项目 PHP-DI 作为依赖注入的基础实现。
 
 ### 构造函数注入
 
-~~~
+~~~php
 class DemoController
 {
     private LoggerInterface $logger;
     
-    /**
-     * @param LoggerInterface $logger 通过依赖注入传入
-     */
     public function __construct(LoggerInterface $logger)
     {
-        $this->logger = $logger;  // 修正：添加赋值语句
+        $this->logger = $logger;
     }
     ...
 }
@@ -297,23 +392,127 @@ class DemoController
 
 ### 属性注入
 
-~~~
+使用 PHP 8 的 `#[Inject]` 属性标记需要注入的依赖：
+
+~~~php
+use Restina\attribute\Inject;
+
 class DemoController
 {
-    /**
-     * @inject 
-     */
-    private \restina\Db $db;
+    #[Inject]
+    private \Restina\Db $db;
+    
+    // 可以指定绑定 ID
+    #[Inject(id: 'UserService')]
+    private $userService;
 }
 ~~~
 
-Restina 通过注释@inject标记注入依赖
+## API 文档生成
 
-## 文档输出
+Restina 内置了基于属性的 API 文档生成系统。框架从控制器注解中自动提取接口信息，生成结构化的文档数据，无需额外的 Annotation。
 
-Restina 项目可以很方便的生成 Swagger 文档，无需添加额外的 Annotation（很多框架为支持 Swagger，通常需要增加很多额外的注释，而这些注释只用于 Swagger。Restina 生成 Swagger 的信息来自路由的注解，包括route, param, return，throws 等）。
+### 文档属性一览
 
-只需访问你的项目 url+/swagger如( http://localhost/swagger)，即可获取 json 格式的 Swagger 文档。
+| 属性 | 作用范围 | 用途 |
+|------|----------|------|
+| `#[Docs]` | 类级别 | 控制器分组（标题、描述、分类） |
+| `#[Api]` | 方法级别 | 接口元信息（标题、描述、响应示例、标签） |
+| `#[Params]` | 方法级别 | 请求参数声明 |
+| `#[Headers]` | 方法级别 | 请求头声明 |
+| `#[Returns]` | 方法级别 | 响应字段声明（支持动态字段和嵌套子字段） |
+
+### 使用示例
+
+~~~php
+use Restina\attribute\Docs;
+use Restina\attribute\Route;
+use Restina\attribute\Api;
+use Restina\attribute\Params;
+use Restina\attribute\Headers;
+use Restina\attribute\Returns;
+use Restina\attribute\enum\FieldType;
+
+#[Docs(title: '用户管理', description: '用户增删改查接口', category: 'user')]
+class UserController
+{
+    #[Route(methods: ['GET'], path: '/users/{id}', code: 'user.show')]
+    #[Api(title: '获取用户详情', description: '根据 ID 返回用户信息', tags: ['用户'])]
+    #[Headers(field: 'X-Request-Id', title: '请求ID', type: 'string', required: false)]
+    #[Params(field: 'id', title: '用户ID', type: FieldType::INTEGER, rules: 'required|integer')]
+    #[Returns(field: 'code', title: '状态码', type: 'integer')]
+    #[Returns(field: 'data', title: '用户信息', type: 'object', children: [
+        ['field' => 'id', 'title' => '用户ID', 'type' => 'integer'],
+        ['field' => 'name', 'title' => '用户名', 'type' => 'string'],
+        ['field' => 'email', 'title' => '邮箱', 'type' => 'string'],
+    ])]
+    public function show(int $id): array
+    {
+        // ...
+    }
+}
+~~~
+
+### 生成文档数据
+
+调用 `Attribute::generate()` 方法即可获取结构化的文档数组：
+
+~~~php
+$attribute = $app->attribute;
+$documentation = $attribute->generate();
+
+// 输出结构：
+// [
+//     [
+//         'class' => 'App\Controllers\UserController',
+//         'title' => '用户管理',
+//         'description' => '用户增删改查接口',
+//         'category' => 'user',
+//         'endpoints' => [
+//             [
+//                 'route' => [...],   // HTTP 方法、路径、JWT 等
+//                 'api' => [...],     // 标题、描述、标签等
+//                 'params' => [...],  // 参数列表（含校验规则映射）
+//                 'headers' => [...], // 请求头列表
+//                 'returns' => [...]  // 响应字段列表
+//             ]
+//         ]
+//     ]
+// ]
+~~~
+
+> 注意：`generate()` 方法要求方法上同时标注 `#[Route]` 和 `#[Api]` 才会被提取为文档端点。仅有 `#[Route]` 而没有 `#[Api]` 的方法不会出现在文档中。
+
+### 校验规则到文档的自动映射
+
+`#[Params]` 中的校验规则会自动映射为文档字段约束：
+
+| 校验规则 | 文档字段 |
+|----------|----------|
+| `required` | `required: true` |
+| `integer` / `boolean` / `array` | `type` 自动转换 |
+| `min:N` / `max:N` | `minimum` / `maximum` |
+| `lengthMin:N` / `lengthMax:N` | `minLength` / `maxLength` |
+| `lengthBetween:N,M` | `minLength` + `maxLength` |
+| `in:a,b,c` | `enum: [a, b, c]` |
+| `email` | `format: 'email'` |
+| `url` | `format: 'uri'` |
+| `ip` | `format: 'ipv4'` |
+| `regex:pattern` | `pattern` |
+
+对于无法直接映射的规则（如 `contains`、`dateBefore` 等），会自动追加到参数的 `description` 中作为说明。
+
+### 自定义文档端点
+
+框架没有内置文档访问路由，你可以根据需要自行暴露：
+
+~~~php
+#[Route(methods: ['GET'], path: '/docs/api', jwt: false, permission: false)]
+public function apiDocs(): array
+{
+    return $this->attribute->generate();
+}
+~~~
 
 ## 错误处理
 
@@ -363,190 +562,378 @@ Restina 提供了完善的错误处理机制：
 
 创建队列任务类需要继承框架提供的基础任务类：
 
-~~~
+~~~php
 <?php
 namespace App\Jobs;
 
-use Restina\Queue\Job;
+use Restina\queue\Job;
 
 class SendEmailJob extends Job
 {
-    protected $data;
-    
-    public function __construct($data)
+    public function __construct(array $data = [])
     {
-        $this->data = $data;
+        parent::__construct(self::class, $data);
     }
-    
-    public function handle()
+
+    public function handle(array $data): bool
     {
         // 执行任务逻辑
         // 发送邮件等操作
+        return true;
     }
 }
 ~~~
 
 ### 分发队列任务
 
-~~~
+通过依赖注入获取 `Queue` 实例，然后分发任务：
+
+~~~php
 use App\Jobs\SendEmailJob;
-use Restina\Queue\Queue;
+use Restina\Queue;
+use Restina\attribute\Inject;
 
-// 分发任务到队列
-Queue::push(new SendEmailJob($data));
+class OrderController
+{
+    #[Inject]
+    private Queue $queue;
 
-// 延迟执行
-Queue::later(60, new SendEmailJob($data)); // 60秒后执行
+    public function sendNotification(): void
+    {
+        // 立即分发任务到队列
+        $this->queue->push(new SendEmailJob(['to' => 'user@example.com']));
+
+        // 延迟 60 秒执行
+        $this->queue->later(60, new SendEmailJob(['to' => 'user@example.com']));
+    }
+}
 ~~~
 
 ### 启动队列处理器
 
-在命令行中启动队列处理器：
+在命令行中启动队列消费者：
 
-`php restina queue:work --queue=default --max-time=3600`
+```bash
+php restina queue:consume --queue=default --max-jobs=1000 --memory=256
+```
+
+或者使用队列工作进程命令：
+
+```bash
+php restina queue:work --queue=default --workers=1 --daemon
+```
 
 更多选项：
-- `--queue=high,default`: 指定多个队列
-- `--delay=3`: 设置延迟时间
-- `--tries=3`: 设置最大尝试次数
-- `--timeout=60`: 设置任务超时时间
+- `--queue=high,default`：指定多个队列
+- `--max-jobs=1000`：最大处理任务数
+- `--memory=256`：内存限制（MB）
+- `--sleep=3`：空闲时休眠秒数
+- `--daemon`：守护进程模式
 
 ## 定时任务（Scheduler）
 
-### 定时任务配置
+Restina 提供基于 PHP 8 属性的声明式定时任务系统。
 
-定时任务配置文件位于 `app/scheduler.php`：
+### 方式一：使用属性标记
 
+在控制器或任意类中定义方法，使用 `#[Scheduler]` 属性标注：
+
+~~~php
+use Restina\attribute\Scheduler;
+
+class CleanupTask
+{
+    #[Scheduler(cron: '0 2 * * *', name: 'cleanup.logs', desc: '每天凌昨2点清理日志')]
+    public function cleanupLogs(): void
+    {
+        // 清理逻辑
+    }
+    
+    #[Scheduler(cron: '0 0 * * 0', name: 'weekly.report', desc: '每周报告')]
+    public function generateWeeklyReport(): void
+    {
+        // 生成报告逻辑
+    }
+}
 ~~~
+
+### 方式二：配置文件
+
+在 `app/scheduler.php` 中以数组形式声明定时任务：
+
+~~~php
 <?php
 // app/scheduler.php
 
-use Restina\Scheduler\Schedule;
-
-return function (Schedule $schedule) {
-    // 每分钟执行一次清理任务
-    $schedule->command('cleanup:logs')->everyMinute();
-    
-    // 每小时执行一次统计任务
-    $schedule->command('stats:generate')->hourly();
-    
-    // 每天凌晨2点执行备份任务
-    $schedule->command('backup:database')->dailyAt('02:00');
-    
-    // 每周日凌晨3点执行维护任务
-    $schedule->command('maintenance:run')->weeklyOn(0, '03:00');
-    
-    // 自定义 Cron 表达式
-    $schedule->command('custom:task')->cron('0 22 * * 1-5'); // 工作日晚上10点执行
-};
+return [
+    'daily-backup' => [
+        'cron' => '0 2 * * *',
+        'name' => 'daily-backup',
+        'desc' => '每日备份',
+        'class' => App\Tasks\BackupTask::class,
+        'method' => 'backup',
+        'type' => 'method'
+    ],
+    'weekly-report' => [
+        'cron' => '0 0 * * 0',
+        'name' => 'weekly-report',
+        'desc' => '每周报告',
+        'class' => App\Tasks\ReportTask::class,
+        'method' => 'generateWeeklyReport',
+        'type' => 'method'
+    ]
+];
 ~~~
 
-### 定时任务命令
+### 启动定时任务调度器
 
-在 `app/commands` 目录下创建定时任务命令类：
+使用命令行启动调度器：
 
+```bash
+php restina scheduler:run
+```
+
+或者在系统 crontab 中添加以下条目，使调度器每分钟运行一次：
+
+```bash
+* * * * * cd /path-to-your-project && php restina scheduler:run >> /dev/null 2>&1
+```
+
+### Cron 表达式说明
+
+定时任务使用标准 Cron 表达式：
+
+```
+* * * * *
+│ │ │ │ │
+│ │ │ │ └─── 星期几 (0-7, 0 和 7 都是周日)
+│ │ │ └───── 月份 (1-12)
+│ │ └─────── 日期 (1-31)
+│ └───────── 小时 (0-23)
+└─────────── 分钟 (0-59)
+```
+
+常用示例：
+- `* * * * *`：每分钟执行
+- `0 * * * *`：每小时执行
+- `0 2 * * *`：每天凌昨2点执行
+- `0 0 * * 0`：每周日凌晨执行
+- `0 22 * * 1-5`：工作日晚上10点执行
+
+### 动态添加任务
+
+可以通过代码动态添加定时任务：
+
+~~~php
+use Restina\Scheduler;
+
+class TaskManager
+{
+    #[Inject]
+    private Scheduler $scheduler;
+    
+    public function registerTasks(): void
+    {
+        $this->scheduler->addTask(
+            name: 'custom-task',
+            cron: '*/5 * * * *',
+            callback: function() {
+                // 任务逻辑
+            },
+            description: '每5分钟执行一次'
+        );
+    }
+}
 ~~~
+
+### 队列与定时任务结合使用
+
+~~~php
+use Restina\Queue;
+use Restina\attribute\Inject;
+use Restina\attribute\Scheduler;
+
+class BatchProcessor
+{
+    #[Inject]
+    private Queue $queue;
+    
+    #[Scheduler(cron: '*/5 * * * *', name: 'process.items', desc: '每5分钟处理待处理项')]
+    public function processPendingItems(): void
+    {
+        // 查询待处理的数据
+        $pendingItems = Db::table('items')->where('status', 'pending')->get();
+        
+        foreach ($pendingItems as $item) {
+            $this->queue->push(new ProcessItemJob($item));
+        }
+    }
+}
+~~~
+
+## 命令行系统
+
+Restina 提供简洁的命令行系统，所有自定义命令放在 `app/commands/` 目录下。
+
+### 创建命令
+
+创建命令类需要继承 `Restina\console\Command` 基类：
+
+~~~php
 <?php
-// app/commands/CleanupLogsCommand.php
-
 namespace App\Commands;
 
-use Restina\Console\Command;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Output\OutputInterface;
+use Restina\App;
+use Restina\console\Command;
 
-class CleanupLogsCommand extends Command
+class MigrateCommand extends Command
 {
-    protected static $defaultName = 'cleanup:logs';
-    
-    protected function configure()
+    protected string $signature = 'migrate {--force : 强制执行}';
+    protected string $description = '执行数据库迁移';
+
+    protected function configure(): void
     {
-        $this->setDescription('清理过期日志文件');
+        // 可以在这里动态修改 signature
+        $this->signature = 'migrate {--force : 强制执行} {--seed : 是否填充数据}';
     }
-    
-    protected function execute(InputInterface $input, OutputInterface $output)
+
+    public function handle(App $app): int
     {
-        // 清理逻辑
-        $output->writeln('开始清理日志...');
+        if ($this->hasOption('force')) {
+            $this->info('强制模式已启用');
+        }
         
-        // 实际清理代码
+        // 迁移逻辑...
         
-        $output->writeln('日志清理完成！');
+        $this->success('迁移完成');
         return 0;
     }
 }
 ~~~
 
-### 启动定时任务调度器
+### 命令使用
 
-确保系统的 crontab 中添加以下条目，使调度器每分钟运行一次：
+~~~bash
+# 查看所有可用命令
+php restina list
 
-`* * * * * cd /path-to-your-project && php restina schedule:run >> /dev/null 2>&1`
+# 执行命令
+php restina migrate
 
-然后启动调度器监听：
+# 带选项执行
+php restina migrate --force --seed
 
-`php restina schedule:listen`
-
-定时任务常用方法
-
-|方法|说明|
-|-----|----|
-|->everyMinute()|每分钟执行一次|
-|->everyFiveMinutes()|每五分钟执行一次|
-|->everyTenMinutes()|每十分钟执行一次|
-|->everyFifteenMinutes()|每十五分钟执行一次|
-|->everyThirtyMinutes()|每三十分钟执行一次|
-|->hourly()|每小时执行一次|
-|->hourlyAt(17)|每小时17分执行一次|
-|->daily()|每天凌晨执行|
-|->dailyAt('08:00')|每天08:00执行|
-|->twiceDaily(1, 13)|每天1:00和13:00执行|
-|->weekly()|每周日凌晨执行|
-|->weeklyOn(1, '08:00')|每周1凌晨08:00执行|
-|->monthly()|每月1号凌晨执行|
-|->monthlyOn(15, '08:00')|每月15号凌晨08:00执行|
-|->quarterly()|每季度1号凌晨执行|
-|->yearly()|每年1月1日凌晨执行|
-
-### 定时任务约束条件
-
-~~~
-$schedule->command('backup:database')
-    ->daily()
-    ->when(function () {
-        return date('d') === '01'; // 每月1号执行
-    });
-
-// 在特定环境中运行
-$schedule->command('send:report')
-    ->daily()
-    ->environments('production');
-
-// 只在特定服务器运行
-$schedule->command('deploy:worker')
-    ->everyMinute()
-    ->onOneServer();
+# 查看帮助
+php restina help migrate
 ~~~
 
-### 自定义 Cron 表达式
+### 命令基类方法
 
-~~~
-$schedule->command('custom:task')->cron('0 22 * * 1-5'); // 工作日晚上10点执行
-$schedule->command('weekly:report')->cron('0 0 * * 0'); // 每周日凌晨执行
-~~~
+`Command` 基类提供以下常用方法：
 
-### 队列与定时任务结合使用
+- `argument(string $name)`：获取参数值
+- `option(string $name)`：获取选项值
+- `hasOption(string $name)`：检查是否存在某个选项
+- `info(string $message)`：输出信息（青色）
+- `success(string $message)`：输出成功信息（绿色）
+- `warning(string $message)`：输出警告信息（黄色）
+- `error(string $message)`：输出错误信息（红色）
+- `output(string $message)`：普通输出
 
-~~~
-// 在定时任务中分发队列任务
-$schedule->call(function () {
-    // 查询待处理的数据
-    $pendingItems = DB::table('items')->where('status', 'pending')->get();
-    
-    foreach ($pendingItems as $item) {
-        Queue::push(new ProcessItemJob($item));
+## 完整 API 示例
+
+以下示例展示一个完整的用户管理控制器，涵盖属性路由、参数绑定、依赖注入和参数校验：
+
+~~~php
+<?php
+namespace App\Controllers;
+
+use Restina\attribute\Route;
+use Restina\attribute\Params;
+use Restina\attribute\Inject;
+use Restina\attribute\enum\FieldType;
+use Restina\Request;
+use Restina\Db;
+use Restina\Jwt;
+
+class UserController
+{
+    // 属性注入
+    #[Inject]
+    private Db $db;
+
+    #[Inject]
+    private Jwt $jwt;
+
+    /**
+     * 获取用户列表
+     */
+    #[Route(methods: ['GET'], path: '/users', code: 'user.list')]
+    #[Params(field: 'page', title: '页码', type: FieldType::INTEGER, default: 1, rules: 'min:1|integer')]
+    #[Params(field: 'limit', title: '每页数量', type: FieldType::INTEGER, default: 10, rules: 'min:1|max:100|integer')]
+    public function list(int $page = 1, int $limit = 10): array
+    {
+        $offset = ($page - 1) * $limit;
+        $users = $this->db->table('users')
+            ->offset($offset)
+            ->limit($limit)
+            ->get();
+
+        return ['code' => 0, 'data' => $users, 'page' => $page, 'limit' => $limit];
     }
-})->everyFiveMinutes();
+
+    /**
+     * 获取单个用户
+     */
+    #[Route(methods: ['GET'], path: '/users/{id}', code: 'user.show')]
+    #[Params(field: 'id', title: '用户ID', type: FieldType::INTEGER, rules: 'required|integer')]
+    public function show(int $id): array
+    {
+        $user = $this->db->table('users')->find($id);
+        if (!$user) {
+            return ['code' => 404, 'message' => '用户不存在'];
+        }
+        return ['code' => 0, 'data' => $user];
+    }
+
+    /**
+     * 创建用户
+     */
+    #[Route(methods: ['POST'], path: '/users', code: 'user.create')]
+    #[Params(field: 'name', title: '用户名', type: FieldType::STRING, rules: 'required|lengthBetween:2,50')]
+    #[Params(field: 'email', title: '邮箱', type: FieldType::STRING, rules: 'required|email')]
+    #[Params(field: 'password', title: '密码', type: FieldType::STRING, rules: 'required|lengthMin:6')]
+    public function store(Request $request): array
+    {
+        $data = $request->getParsedBody();
+        $id = $this->db->table('users')->insertGetId([
+            'name'     => $data['name'],
+            'email'    => $data['email'],
+            'password' => password_hash($data['password'], PASSWORD_DEFAULT),
+        ]);
+
+        return ['code' => 0, 'message' => '创建成功', 'data' => ['id' => $id]];
+    }
+
+    /**
+     * 用户登录（无需JWT）
+     */
+    #[Route(methods: ['POST'], path: '/auth/login', code: 'auth.login', jwt: false, permission: false)]
+    #[Params(field: 'email', title: '邮箱', type: FieldType::STRING, rules: 'required|email')]
+    #[Params(field: 'password', title: '密码', type: FieldType::STRING, rules: 'required')]
+    public function login(Request $request): array
+    {
+        $data = $request->getParsedBody();
+        $user = $this->db->table('users')->where('email', $data['email'])->first();
+
+        if (!$user || !password_verify($data['password'], $user['password'])) {
+            return ['code' => 401, 'message' => '邮箱或密码错误'];
+        }
+
+        $token = $this->jwt->generate(['uid' => $user['id']]);
+        return ['code' => 0, 'data' => ['token' => $token]];
+    }
+}
 ~~~
 
 ## 参与开发
@@ -559,7 +946,7 @@ Restina遵循Apache2开源协议发布，并提供免费使用。
 
 本项目包含的第三方源码和二进制文件之版权信息另行标注。
 
-版权所有Copyright © 2006-2019 by ivup.cn (http://ivup.cn)
+版权所有Copyright © 2006-2026 by ivup.cn (http://ivup.cn)
 
 All rights reserved。
 
