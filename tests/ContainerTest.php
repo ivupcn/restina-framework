@@ -63,6 +63,15 @@ class StubWithUnresolvableScalar
     }
 }
 
+class StubSelfCircular
+{
+    public function __construct(Container $container)
+    {
+        // 构造函数中再次 make 自身，模拟 make() 路径循环依赖
+        $container->make(self::class);
+    }
+}
+
 class ContainerTest extends TestCase
 {
     private Container $container;
@@ -232,5 +241,34 @@ class ContainerTest extends TestCase
 
         $container = new Container($diContainer);
         $this->assertSame('value', $container->get('custom'));
+    }
+
+    // ─── make() 循环依赖检测 ─────────────────────────────────
+
+    public function testMakeDetectsCircularDependency(): void
+    {
+        // 将当前容器注册到 PHP-DI，确保构造函数拿到的是同一个实例
+        $this->container->getRawContainer()->set(Container::class, $this->container);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Circular dependency');
+
+        $this->container->make(StubSelfCircular::class);
+    }
+
+    public function testMakeCleansUpAfterException(): void
+    {
+        $this->container->getRawContainer()->set(Container::class, $this->container);
+
+        // make() 失败后，$making 应被清理，不影响后续调用
+        try {
+            $this->container->make(StubSelfCircular::class);
+        } catch (\LogicException $e) {
+            // 预期异常
+        }
+
+        // 清理后，make() 其他类应正常工作
+        $obj = $this->container->make(StubNoConstructor::class);
+        $this->assertInstanceOf(StubNoConstructor::class, $obj);
     }
 }

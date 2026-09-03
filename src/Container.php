@@ -25,6 +25,11 @@ class Container
      */
     private array $instantiated = [];
 
+    /**
+     * 记录正在通过 make() 创建的类，防止循环依赖导致无限递归
+     */
+    private array $making = [];
+
     public function __construct(?PHPDIContainer $container = null)
     {
         $this->container = $container ?: new PHPDIContainer();
@@ -70,20 +75,30 @@ class Container
      */
     public function make(string $className, array $parameters = [])
     {
-        $reflection = new ReflectionClass($className);
-        // 获取构造函数参数
-        $constructor = $reflection->getConstructor();
-        $constructorArgs = [];
-        if ($constructor) {
-            $constructorArgs = $this->resolveParameters($constructor, $parameters);
+        // 检测 make() 路径的循环依赖
+        if (isset($this->making[$className])) {
+            $chain = implode(' -> ', [...array_keys($this->making), $className]);
+            throw new \LogicException("Circular dependency detected in make(): {$chain}");
         }
-        // 创建实例
-        $instance = $reflection->newInstanceArgs($constructorArgs);
-        // 注入属性
-        $this->injectProperties($instance);
-        // 标记为已实例化
-        $this->markAsInstantiated($className);
-        return $instance;
+        $this->making[$className] = true;
+        try {
+            $reflection = new ReflectionClass($className);
+            // 获取构造函数参数
+            $constructor = $reflection->getConstructor();
+            $constructorArgs = [];
+            if ($constructor) {
+                $constructorArgs = $this->resolveParameters($constructor, $parameters);
+            }
+            // 创建实例
+            $instance = $reflection->newInstanceArgs($constructorArgs);
+            // 注入属性
+            $this->injectProperties($instance);
+            // 标记为已实例化
+            $this->markAsInstantiated($className);
+            return $instance;
+        } finally {
+            unset($this->making[$className]);
+        }
     }
 
     /**
