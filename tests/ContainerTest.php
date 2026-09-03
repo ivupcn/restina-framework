@@ -63,12 +63,34 @@ class StubWithUnresolvableScalar
     }
 }
 
-class StubSelfCircular
+/**
+ * 通过 make() 路径的循环依赖桩类：构造函数中再次 make 自身
+ */
+class StubSelfCircularViaMake
 {
     public function __construct(Container $container)
     {
-        // 构造函数中再次 make 自身，模拟 make() 路径循环依赖
         $container->make(self::class);
+    }
+}
+
+/**
+ * get() 路径循环依赖桩类 A → B
+ */
+class StubCircularA
+{
+    public function __construct(StubCircularB $b)
+    {
+    }
+}
+
+/**
+ * get() 路径循环依赖桩类 B → A
+ */
+class StubCircularB
+{
+    public function __construct(StubCircularA $a)
+    {
     }
 }
 
@@ -162,7 +184,7 @@ class ContainerTest extends TestCase
 
     public function testMakeAutoWiresClassDependency(): void
     {
-        // PHP-DI 可以自动解析类类型依赖，无需显式注册
+        // 容器可以自动解析类类型依赖，无需显式注册
         $obj = $this->container->make(StubServiceB::class);
         $this->assertInstanceOf(StubServiceB::class, $obj);
         $this->assertInstanceOf(StubServiceA::class, $obj->a);
@@ -224,45 +246,25 @@ class ContainerTest extends TestCase
         $this->assertFalse($this->container->isInstantiated('anything'));
     }
 
-    // ─── getRawContainer ─────────────────────────────────────
-
-    public function testGetRawContainer(): void
-    {
-        $raw = $this->container->getRawContainer();
-        $this->assertInstanceOf(\DI\Container::class, $raw);
-    }
-
-    // ─── 自定义容器注入 ──────────────────────────────────────
-
-    public function testConstructWithCustomContainer(): void
-    {
-        $diContainer = new \DI\Container();
-        $diContainer->set('custom', 'value');
-
-        $container = new Container($diContainer);
-        $this->assertSame('value', $container->get('custom'));
-    }
-
     // ─── make() 循环依赖检测 ─────────────────────────────────
 
     public function testMakeDetectsCircularDependency(): void
     {
-        // 将当前容器注册到 PHP-DI，确保构造函数拿到的是同一个实例
-        $this->container->getRawContainer()->set(Container::class, $this->container);
+        // 注册自身到容器，使 make 时能解析 Container 依赖
+        $this->container->set(Container::class, $this->container);
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('Circular dependency');
+        $this->expectExceptionMessage('make() 循环依赖');
 
-        $this->container->make(StubSelfCircular::class);
+        $this->container->make(StubSelfCircularViaMake::class);
     }
 
     public function testMakeCleansUpAfterException(): void
     {
-        $this->container->getRawContainer()->set(Container::class, $this->container);
+        $this->container->set(Container::class, $this->container);
 
-        // make() 失败后，$making 应被清理，不影响后续调用
         try {
-            $this->container->make(StubSelfCircular::class);
+            $this->container->make(StubSelfCircularViaMake::class);
         } catch (\LogicException $e) {
             // 预期异常
         }
@@ -270,5 +272,58 @@ class ContainerTest extends TestCase
         // 清理后，make() 其他类应正常工作
         $obj = $this->container->make(StubNoConstructor::class);
         $this->assertInstanceOf(StubNoConstructor::class, $obj);
+    }
+
+    // ─── get() 路径循环依赖检测 ──────────────────────────────
+
+    public function testGetDetectsCircularDependency(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('循环依赖');
+
+        $this->container->make(StubCircularA::class);
+    }
+
+    // ─── 自动装配缓存 ────────────────────────────────────────
+
+    public function testAutowireCachesResult(): void
+    {
+        $obj1 = $this->container->get(StubNoConstructor::class);
+        $obj2 = $this->container->get(StubNoConstructor::class);
+        $this->assertSame($obj1, $obj2);
+    }
+
+    // ─── 闭包工厂 ────────────────────────────────────────────
+
+    public function testClosureFactoryCalledEachTime(): void
+    {
+        $count = 0;
+        $this->container->set('counter', function () use (&$count) {
+            return ++$count;
+        });
+
+        $this->assertSame(1, $this->container->get('counter'));
+        $this->assertSame(2, $this->container->get('counter'));
+    }
+
+    // ─── has() 对可自动装配类返回 true ───────────────────────
+
+    public function testHasReturnsTrueForAutowirableClass(): void
+    {
+        $this->assertTrue($this->container->has(StubNoConstructor::class));
+    }
+
+    public function testHasReturnsFalseForNonExistentClass(): void
+    {
+        $this->assertFalse($this->container->has('NonExistent\\FakeClass'));
+    }
+
+    // ─── get() 对不存在的类抛异常 ────────────────────────────
+
+    public function testGetThrowsForNonExistentClass(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('找不到服务或类');
+        $this->container->get('NonExistent\\FakeClass');
     }
 }

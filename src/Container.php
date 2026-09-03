@@ -3,9 +3,6 @@
 
 namespace Restina;
 
-use DI\Container as PHPDIContainer;
-use DI\DependencyException;
-use DI\NotFoundException;
 use ReflectionClass;
 use ReflectionProperty;
 use ReflectionMethod;
@@ -13,12 +10,28 @@ use ReflectionNamedType;
 use Restina\attribute\Inject;
 
 /**
- * 容器类
+ * 轻量级依赖注入容器
+ * 
+ * 支持：
+ * - set/get/has 基本容器操作
+ * - 闭包工厂（每次 get 时调用）
+ * - 类名自动装配（反射构造函数 + 递归解析 + 缓存）
+ * - #[Inject] 属性注入
+ * - 循环依赖检测（get 路径 + make 路径）
+ *
  * @package Restina
  */
 class Container
 {
-    private PHPDIContainer $container;
+    /**
+     * 已注册的服务条目（实例或闭包工厂）
+     */
+    private array $entries = [];
+
+    /**
+     * 已解析的缓存（自动装配的类实例）
+     */
+    private array $resolved = [];
 
     /**
      * 记录已被实例化的服务 ID（包括通过 get() 和 make() 创建的）
@@ -26,46 +39,74 @@ class Container
     private array $instantiated = [];
 
     /**
-     * 记录正在通过 make() 创建的类，防止循环依赖导致无限递归
+     * 正在通过 get() 自动装配的类，防止循环依赖
+     */
+    private array $resolving = [];
+
+    /**
+     * 正在通过 make() 创建的类，防止循环依赖
      */
     private array $making = [];
 
-    public function __construct(?PHPDIContainer $container = null)
+    public function __construct()
     {
-        $this->container = $container ?: new PHPDIContainer();
     }
 
     /**
      * 获取服务实例
      *
+     * 优先级：已解析缓存 → 已注册条目（工厂则调用） → 自动装配
+     *
      * @param string $id 服务ID
      * @return mixed
-     * @throws DependencyException
-     * @throws NotFoundException
+     * @throws \RuntimeException 无法解析时
      */
-    public function get(string $id)
+    public function get(string $id): mixed
     {
-        $instance = $this->container->get($id);
-        $this->markAsInstantiated($id);
-        return $instance;
+        // 已解析的缓存直接返回（支持 null 值缓存）
+        if (array_key_exists($id, $this->resolved)) {
+            return $this->resolved[$id];
+        }
+
+        // 已注册的条目
+        if (array_key_exists($id, $this->entries)) {
+            $entry = $this->entries[$id];
+            if ($entry instanceof \Closure) {
+                return $entry($this);
+            }
+            $this->markAsInstantiated($id);
+            return $entry;
+        }
+
+        // 尝试自动装配
+        return $this->autowire($id);
     }
 
     /**
-     * 检查服务是否存在
+     * 检查服务是否存在（已注册、已解析、或可自动装配的类）
      */
     public function has(string $id): bool
     {
-        return $this->container->has($id);
+        if (array_key_exists($id, $this->entries) || array_key_exists($id, $this->resolved)) {
+            return true;
+        }
+        // 检查是否是可以自动装配的类
+        return class_exists($id) && (new ReflectionClass($id))->isInstantiable();
     }
 
     /**
      * 设置服务
+     *
+     * @param string $id 服务ID
+     * @param mixed $service 实例值或闭包工厂（闭包每次 get 时调用，不缓存）
      */
     public function set(string $id, mixed $service): void
     {
-        $this->container->set($id, $service);
-        // 如果设置的是实例，则标记为已实例化
-        if (!is_callable($service) && !is_array($service)) {
+        $this->entries[$id] = $service;
+        // 清除可能的旧缓存
+        unset($this->resolved[$id]);
+        // 如果设置的是实例，标记为已实例化
+        if (!($service instanceof \Closure) && !is_callable($service) && !is_array($service)) {
             $this->markAsInstantiated($id);
         }
     }
@@ -78,7 +119,7 @@ class Container
         // 检测 make() 路径的循环依赖
         if (isset($this->making[$className])) {
             $chain = implode(' -> ', [...array_keys($this->making), $className]);
-            throw new \LogicException("Circular dependency detected in make(): {$chain}");
+            throw new \LogicException("make() 循环依赖: {$chain}");
         }
         $this->making[$className] = true;
         try {
@@ -99,6 +140,45 @@ class Container
         } finally {
             unset($this->making[$className]);
         }
+    }
+
+    /**
+     * 自动装配：反射构造函数，递归解析类类型依赖，结果缓存
+     */
+    private function autowire(string $className): mixed
+    {
+        if (!class_exists($className)) {
+            throw new \RuntimeException("找不到服务或类 '$className'");
+        }
+
+        $reflection = new ReflectionClass($className);
+        if (!$reflection->isInstantiable()) {
+            throw new \RuntimeException("类 '$className' 无法实例化");
+        }
+
+        // 检测 get() 路径的循环依赖
+        if (isset($this->resolving[$className])) {
+            $chain = implode(' -> ', [...array_keys($this->resolving), $className]);
+            throw new \LogicException("循环依赖: {$chain}");
+        }
+        $this->resolving[$className] = true;
+
+        try {
+            $constructor = $reflection->getConstructor();
+            $args = [];
+            if ($constructor) {
+                $args = $this->resolveParameters($constructor, []);
+            }
+            $instance = $reflection->newInstanceArgs($args);
+            $this->injectProperties($instance);
+        } finally {
+            unset($this->resolving[$className]);
+        }
+
+        // 缓存结果
+        $this->resolved[$className] = $instance;
+        $this->markAsInstantiated($className);
+        return $instance;
     }
 
     /**
@@ -126,7 +206,7 @@ class Container
             } else {
                 // 如果无法解析，抛出异常
                 throw new \InvalidArgumentException(
-                    "Cannot resolve parameter {$parameter->getName()} of {$constructor->getDeclaringClass()->getName()}"
+                    "无法解析参数 {$parameter->getName()}（{$constructor->getDeclaringClass()->getName()}）"
                 );
             }
         }
@@ -190,13 +270,5 @@ class Container
     public function clearInstantiated(string $id): void
     {
         unset($this->instantiated[$id]);
-    }
-
-    /**
-     * 获取底层容器
-     */
-    public function getRawContainer(): PHPDIContainer
-    {
-        return $this->container;
     }
 }
