@@ -103,8 +103,8 @@ class Container
     public function set(string $id, mixed $service): void
     {
         $this->entries[$id] = $service;
-        // 清除可能的旧缓存
-        unset($this->resolved[$id]);
+        // 清除可能的旧缓存和旧标记
+        unset($this->resolved[$id], $this->instantiated[$id]);
         // 如果设置的是实例，标记为已实例化
         if (!($service instanceof \Closure) && !is_callable($service) && !is_array($service)) {
             $this->markAsInstantiated($id);
@@ -197,9 +197,20 @@ class Container
                 continue;
             }
 
-            if ($type && !$type->isBuiltin()) {
+            if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
                 // 如果是类类型，从容器获取
-                $resolved[] = $this->get($type->getName());
+                try {
+                    $resolved[] = $this->get($type->getName());
+                } catch (\Throwable $e) {
+                    // 解析失败但参数可选时，使用默认值
+                    if ($parameter->isDefaultValueAvailable() || $parameter->allowsNull()) {
+                        $resolved[] = $parameter->isDefaultValueAvailable()
+                            ? $parameter->getDefaultValue()
+                            : null;
+                    } else {
+                        throw $e;
+                    }
+                }
             } elseif ($parameter->isDefaultValueAvailable()) {
                 // 如果有默认值，使用默认值
                 $resolved[] = $parameter->getDefaultValue();
