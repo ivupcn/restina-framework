@@ -4,3 +4,4 @@
 .vscode
 vendor/
 .qoder/
+.phpunit.result.cache
