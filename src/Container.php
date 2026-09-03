@@ -201,13 +201,18 @@ class Container
                 // 如果是类类型，从容器获取
                 try {
                     $resolved[] = $this->get($type->getName());
-                } catch (\Throwable $e) {
-                    // 解析失败但参数可选时，使用默认值
-                    if ($parameter->isDefaultValueAvailable() || $parameter->allowsNull()) {
-                        $resolved[] = $parameter->isDefaultValueAvailable()
-                            ? $parameter->getDefaultValue()
-                            : null;
+                } catch (\RuntimeException $e) {
+                    // 二次确认：只有"依赖真的不存在"才降级
+                    if (!$this->has($type->getName())) {
+                        if ($parameter->isDefaultValueAvailable()) {
+                            $resolved[] = $parameter->getDefaultValue();
+                        } elseif ($parameter->allowsNull()) {
+                            $resolved[] = null;
+                        } else {
+                            throw $e;
+                        }
                     } else {
+                        // 服务存在但解析失败 —— 真错误，不许吞
                         throw $e;
                     }
                 }

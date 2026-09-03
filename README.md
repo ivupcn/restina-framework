@@ -373,7 +373,7 @@ class DemoController
 
 ## 依赖注入
 
-Restina 使用开源项目 PHP-DI 作为依赖注入的基础实现。
+Restina 内置自研的轻量级依赖注入容器 `Restina\Container`，基于 PHP 反射实现自动装配，不依赖第三方 DI 库。支持 `set` / `get` / `has` 容器操作、闭包工厂、构造函数自动装配（带实例缓存）、`#[Inject]` 属性注入，以及 `get` 与 `make` 双路径的循环依赖检测。
 
 ### 构造函数注入
 

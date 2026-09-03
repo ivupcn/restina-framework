@@ -16,7 +16,7 @@
 
 ## 项目概述
 
-Restina 是一个基于 PHP 8.4+ 的轻量级 REST API 框架，采用注解驱动路由、PHP-DI 依赖注入，支持 API 文档自动生成、队列和定时任务。
+Restina 是一个基于 PHP 8.4+ 的轻量级 REST API 框架，采用注解驱动路由、自研轻量级依赖注入容器，支持 API 文档自动生成、队列和定时任务。
 
 ## 模块结构
 
@@ -53,7 +53,7 @@ PHP 8 Attribute 类，用于声明式路由、参数校验和文档生成：
 |------|------|
 | `App` | 应用入口，引导启动流程 |
 | `Router` | Trie 树路由，支持动态参数 `{param}` |
-| `Container` | 基于 PHP-DI 的容器，支持构造函数注入和 `#[Inject]` 属性注入 |
+| `Container` | 自研轻量级 DI 容器：`set`/`get`/`has`、闭包工厂、反射自动装配（带缓存）、`#[Inject]` 属性注入、`get` 与 `make` 双路径循环依赖检测 |
 | `Request` / `Response` | PSR-7 请求响应封装 |
 | `Hook` | Hook / 中间件管道系统 |
 | `Model` / `Db` | 基于 Illuminate Database 的 ORM |

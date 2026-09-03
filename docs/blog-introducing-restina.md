@@ -93,9 +93,9 @@ public function create(string $name, string $email, int $age = 0, string $role =
 
 支持的校验规则覆盖了日常开发中的绝大多数场景：`required`、`email`、`url`、`ip`、`integer`、`numeric`、`min/max`、`lengthMin/lengthMax`、`in/notIn`、`date/dateFormat`、`regex`、`equals/different`、`contains` 等。
 
-### 3. PHP-DI 依赖注入
+### 3. 依赖注入
 
-Restina 基于 PHP-DI 封装了完整的依赖注入容器，支持构造函数注入和 `#[Inject]` 属性注入两种方式：
+Restina 自己实现了一个轻量级依赖注入容器 `Restina\Container`——基于 PHP 反射做自动装配，不引入任何第三方 DI 库。支持构造函数注入和 `#[Inject]` 属性注入两种方式：
 
 ```php
 use Restina\attribute\Inject;
@@ -343,7 +343,7 @@ composer cs-fix     # 自动修复
 | 组件 | 选型 |
 |------|------|
 | 运行环境 | PHP 8.4+（严格模式） |
-| 依赖注入 | PHP-DI ^7.1 |
+| 依赖注入 | 自研容器 Restina\Container（零第三方 DI 依赖） |
 | HTTP 消息 | PSR-7 (nyholm/psr7) |
 | 日志 | PSR-3 |
 | ORM | Illuminate Database ^12.49 |

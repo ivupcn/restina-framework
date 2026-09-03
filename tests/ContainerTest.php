@@ -64,6 +64,30 @@ class StubWithUnresolvableScalar
 }
 
 /**
+ * 可选依赖桩类：依赖未注册的接口，参数可为 null 且有默认值
+ */
+interface StubUnregisteredInterface
+{
+}
+
+class StubWithOptionalDependency
+{
+    public function __construct(public ?StubUnregisteredInterface $service = null)
+    {
+    }
+}
+
+/**
+ * 依赖工厂服务的桩类：工厂闭包抛出 RuntimeException
+ */
+class StubDependsOnBrokenFactory
+{
+    public function __construct(public ?StubServiceA $service)
+    {
+    }
+}
+
+/**
  * 通过 make() 路径的循环依赖桩类：构造函数中再次 make 自身
  */
 class StubSelfCircularViaMake
@@ -228,6 +252,39 @@ class ContainerTest extends TestCase
 
         $obj = new StubWithUnresolvableInject();
         $this->container->injectProperties($obj);
+    }
+
+    // ─── 可选依赖降级 ────────────────────────────────────────
+
+    public function testOptionalDependencyInjectsNullWhenNotRegistered(): void
+    {
+        // StubUnregisteredInterface 未注册且不可实例化，
+        // 但参数可为 null —— 应注入 null 而不是报错
+        $obj = $this->container->make(StubWithOptionalDependency::class);
+        $this->assertNull($obj->service);
+    }
+
+    public function testOptionalDependencyResolvedWhenRegistered(): void
+    {
+        // 对照组：注册实现后正常注入
+        $impl = new class implements StubUnregisteredInterface {};
+        $this->container->set(StubUnregisteredInterface::class, $impl);
+        $obj = $this->container->make(StubWithOptionalDependency::class);
+        $this->assertInstanceOf(StubUnregisteredInterface::class, $obj->service);
+    }
+
+    public function testFactoryExceptionPropagatesInsteadOfInjectingNull(): void
+    {
+        // 工厂条目存在（has() 为 true）但解析时抛 RuntimeException
+        // 异常必须穿透，不允许静默降级为 null
+        $this->container->set(StubServiceA::class, function () {
+            throw new \RuntimeException('工厂内部错误');
+        });
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('工厂内部错误');
+
+        $this->container->make(StubDependsOnBrokenFactory::class);
     }
 
     // ─── isInstantiated / clearInstantiated ──────────────────
