@@ -244,6 +244,147 @@ class AppTest extends TestCase
         $this->assertTrue($app->isRegistered());
     }
 
+    // ─── getConfig ──────────────────────────────────────────
+
+    public function testGetConfigReturnsValue(): void
+    {
+        $app = App::init();
+        $app->boot();
+        // boot 后 config 已加载
+        $result = $app->getConfig('app.debug', 'default_val');
+        $this->assertNotNull($result);
+    }
+
+    public function testGetConfigReturnsDefaultForMissingKey(): void
+    {
+        $app = App::init();
+        $app->boot();
+        $result = $app->getConfig('nonexistent.key', 'fallback');
+        $this->assertSame('fallback', $result);
+    }
+
+    public function testGetConfigWithNullKeyReturnsAll(): void
+    {
+        $app = App::init();
+        $app->boot();
+        $result = $app->getConfig();
+        $this->assertIsArray($result);
+    }
+
+    // ─── isDebugMode after boot ──────────────────────────────
+
+    public function testIsDebugModeAfterBoot(): void
+    {
+        $app = App::init();
+        $app->boot();
+        $this->assertIsBool($app->isDebugMode());
+    }
+
+    // ─── Boot 状态变更 ──────────────────────────────────────
+
+    public function testBootSetsRegisteredTrue(): void
+    {
+        $app = App::init();
+        $this->assertFalse($app->isRegistered());
+        $app->boot();
+        $this->assertTrue($app->isRegistered());
+    }
+
+    public function testBootSetsBootstrappedTrue(): void
+    {
+        $app = App::init();
+        $this->assertFalse($app->isBootstrapped());
+        $app->boot();
+        $this->assertTrue($app->isBootstrapped());
+    }
+
+    // ─── __get / __isset 与 SERVICE_NAME_MAP ────────────────
+
+    public function testGetResolvesServiceNameMapAlias(): void
+    {
+        $app = App::init();
+        $app->boot();
+        // 'config' 在 SERVICE_NAME_MAP 中映射到 Config::class
+        $config = $app->config;
+        $this->assertInstanceOf(\Restina\Config::class, $config);
+    }
+
+    public function testGetResolvesResponseFromMap(): void
+    {
+        $app = App::init();
+        $app->boot();
+        $response = $app->response;
+        $this->assertInstanceOf(\Restina\Response::class, $response);
+    }
+
+    public function testIssetReturnsTrueForServiceMapAlias(): void
+    {
+        $app = App::init();
+        $app->boot();
+        // boot 后 config 已注册到容器
+        $this->assertTrue(isset($app->config));
+    }
+
+    public function testIssetReturnsFalseForUnmappedProperty(): void
+    {
+        $app = App::init();
+        $this->injectContainer($app);
+        $this->assertFalse(isset($app->{'totally.unknown'}));
+    }
+
+    // ─── getQueue 懒加载 ────────────────────────────────────
+
+    public function testGetQueueLazyInitialization(): void
+    {
+        $app = App::init();
+        $app->boot();
+        // 验证 queue 属性在调用前未初始化
+        $ref = new \ReflectionProperty(App::class, 'queue');
+        $this->assertFalse($ref->isInitialized($app));
+    }
+
+    // ─── handlePhpError ─────────────────────────────────────
+
+    public function testHandlePhpErrorReturnsTrue(): void
+    {
+        // 恢复默认错误处理器，避免其他测试中 boot 设置的处理器干扰
+        for ($i = 0; $i < 10; $i++) { restore_error_handler(); }
+
+        $app = App::init();
+        // 通过反射设置必要属性
+        $refDebug = new \ReflectionProperty(App::class, 'isDebugMode');
+        $refDebug->setAccessible(true);
+        $refDebug->setValue($app, false);
+
+        $refLogger = new \ReflectionProperty(App::class, 'logger');
+        $refLogger->setAccessible(true);
+        $refLogger->setValue($app, new \Restina\Logger(sys_get_temp_dir() . '/restina_test_logs'));
+
+        // handlePhpError 应返回 true 以阻止 PHP 内部错误处理器
+        $result = $app->handlePhpError(E_USER_NOTICE, 'test notice', __FILE__, __LINE__);
+        $this->assertTrue($result);
+    }
+
+    // ─── 路径一致性 ─────────────────────────────────────────
+
+    public function testAppPathEndsWithApp(): void
+    {
+        $app = App::init();
+        $this->assertStringEndsWith('app', $app->getAppPath());
+    }
+
+    public function testViewPathEndsWithViews(): void
+    {
+        $app = App::init();
+        $this->assertStringEndsWith('views', $app->getViewPath());
+    }
+
+    public function testCachePathEndsWithCache(): void
+    {
+        $app = App::init();
+        $this->assertStringEndsWith('cache', $app->getCachePath());
+    }
+
     // ─── Helpers ─────────────────────────────────────────────
 
     /**

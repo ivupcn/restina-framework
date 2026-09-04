@@ -626,4 +626,159 @@ class ValidatorTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         Validator::validate(-3, 'max:-5', 'val');
     }
+
+    // ─── lengthMin / lengthMax 类型错误 ──────────────────
+
+    public function testLengthMinWithNonStringThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必须是字符串');
+        Validator::validate([1, 2], 'lengthMin:2', 'items');
+    }
+
+    public function testLengthMaxWithNonStringThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必须是字符串');
+        Validator::validate(12345, 'lengthMax:10', 'num');
+    }
+
+    public function testLengthBetweenWithNonStringThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必须是字符串');
+        Validator::validate(123, 'lengthBetween:1,5', 'num');
+    }
+
+    // ─── dateBefore / dateAfter 边界 ─────────────────────
+
+    public function testDateBeforeSameDateFails(): void
+    {
+        // dateBefore 要求严格早于，同日期应失败
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate('2025-01-01', 'dateBefore:2025-01-01', 'dt');
+    }
+
+    public function testDateAfterSameDateFails(): void
+    {
+        // dateAfter 要求严格晚于，同日期应失败
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate('2025-01-01', 'dateAfter:2025-01-01', 'dt');
+    }
+
+    public function testDateBeforeWithInvalidValueThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必须是有效的日期');
+        Validator::validate('invalid', 'dateBefore:2025-01-01', 'dt');
+    }
+
+    public function testDateAfterWithInvalidComparisonDateThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('比较日期格式无效');
+        Validator::validate('2025-01-01', 'dateAfter:invalid-date', 'dt');
+    }
+
+    // ─── regex 不安全模式 ───────────────────────────────
+
+    public function testRegexWithUnsafePatternThrows(): void
+    {
+        // 包含递归捕获组模式，应被拒绝
+        $this->expectException(InvalidArgumentException::class);
+        Validator::validate('test', 'regex:/(.+)\1/', 'val');
+    }
+
+    public function testRegexWithInvalidPatternThrows(): void
+    {
+        // 恢复默认错误处理器（最多恢复 10 层），避免 App::boot 设置的全局处理器将 preg_match 警告转为异常
+        for ($i = 0; $i < 10; $i++) { restore_error_handler(); }
+
+        $this->expectException(InvalidArgumentException::class);
+        // 无效的正则表达式（未闭合的括号）
+        Validator::validate('test', 'regex:/[invalid/', 'val');
+    }
+
+    public function testRegexWithNonStringValueThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('必须是字符串');
+        Validator::validate(123, 'regex:/^[0-9]+$/', 'val');
+    }
+
+    // ─── creditCard 带分隔符 ───────────────────────────
+
+    public function testCreditCardWithDashesPasses(): void
+    {
+        // 带横杠的信用卡号应被正确处理
+        $this->assertSame(
+            '4111-1111-1111-1111',
+            Validator::validate('4111-1111-1111-1111', 'creditCard', 'cc')
+        );
+    }
+
+    public function testCreditCardWithSpacesPasses(): void
+    {
+        $this->assertSame(
+            '4111 1111 1111 1111',
+            Validator::validate('4111 1111 1111 1111', 'creditCard', 'cc')
+        );
+    }
+
+    // ─── extractRule 补充 ───────────────────────────────
+
+    public function testExtractRuleSkipsEmptyParts(): void
+    {
+        // 双竖线之间应跳过
+        $rules = Validator::extractRule('required||numeric');
+        $this->assertCount(2, $rules);
+        $this->assertSame('required', $rules[0]['name']);
+        $this->assertSame('numeric', $rules[1]['name']);
+    }
+
+    public function testExtractRuleWithTrailingPipe(): void
+    {
+        $rules = Validator::extractRule('required|');
+        $this->assertCount(1, $rules);
+    }
+
+    // ─── validate 返回值 ───────────────────────────────
+
+    public function testValidateReturnsTransformedBooleanValue(): void
+    {
+        // boolean 规则会将 '1' 转换为 true
+        $result = Validator::validate('1', 'boolean', 'flag');
+        $this->assertTrue($result);
+        $this->assertIsBool($result);
+    }
+
+    public function testValidatePreservesIntegerThroughNumeric(): void
+    {
+        $result = Validator::validate(42, 'numeric', 'val');
+        $this->assertSame(42, $result);
+    }
+
+    // ─── min / max 边界 ───────────────────────────────
+
+    public function testMinExactBoundary(): void
+    {
+        $this->assertSame(5, Validator::validate(5, 'min:5', 'val'));
+    }
+
+    public function testMaxExactBoundary(): void
+    {
+        $this->assertSame(10, Validator::validate(10, 'max:10', 'val'));
+    }
+
+    // ─── in / notIn 补充 ───────────────────────────────
+
+    public function testInWithNumericString(): void
+    {
+        $this->assertSame('1', Validator::validate('1', 'in:1,2,3', 'val'));
+    }
+
+    public function testNotInAllowsUnlistedValue(): void
+    {
+        $this->assertSame('x', Validator::validate('x', 'notIn:a,b,c', 'val'));
+    }
 }

@@ -503,4 +503,147 @@ class HookTest extends TestCase
         Hook::applyFilters('test.sf2', 'val');
         $this->assertSame(1, $count);
     }
+
+    // ─── Pipe 去重 ────────────────────────────────────────
+
+    public function testPipeDeduplication(): void
+    {
+        $count = 0;
+        $middleware = function ($request, $next) use (&$count) {
+            $count++;
+            return $next($request);
+        };
+
+        Hook::addPipe('test.dedup', $middleware);
+        Hook::addPipe('test.dedup', $middleware); // 重复注册
+
+        Hook::runPipe('test.dedup', function () { return 'ok'; });
+        $this->assertSame(1, $count);
+    }
+
+    // ─── Action 多回调执行 ────────────────────────────────
+
+    public function testMultipleActionCallbacksAllExecute(): void
+    {
+        $log = [];
+
+        Hook::addAction('test.multi', function () use (&$log) {
+            $log[] = 'first';
+        }, 10);
+
+        Hook::addAction('test.multi', function () use (&$log) {
+            $log[] = 'second';
+        }, 20);
+
+        Hook::addAction('test.multi', function () use (&$log) {
+            $log[] = 'third';
+        }, 30);
+
+        Hook::doAction('test.multi');
+        $this->assertCount(3, $log);
+        $this->assertSame(['first', 'second', 'third'], $log);
+    }
+
+    // ─── Pipe 移除后穿透 ───────────────────────────────────
+
+    public function testPipeFallsThroughAfterRemoval(): void
+    {
+        Hook::addPipe('test.fallthrough', function ($request, $next) {
+            return 'should-not-reach';
+        });
+
+        Hook::removePipe('test.fallthrough');
+
+        $result = Hook::runPipe('test.fallthrough', function () {
+            return 'direct-result';
+        });
+        $this->assertSame('direct-result', $result);
+    }
+
+    // ─── Pipe 空名称与不同名称隔离 ───────────────────────
+
+    public function testPipesAreIsolatedByHookName(): void
+    {
+        Hook::addPipe('test.isolated1', function ($request, $next) {
+            return $next($request) . '|A';
+        });
+
+        Hook::addPipe('test.isolated2', function ($request, $next) {
+            return $next($request) . '|B';
+        });
+
+        $result1 = Hook::runPipe('test.isolated1', function () { return 'core'; });
+        $result2 = Hook::runPipe('test.isolated2', function () { return 'core'; });
+
+        $this->assertSame('core|A', $result1);
+        $this->assertSame('core|B', $result2);
+    }
+
+    // ─── Action 参数传递 ───────────────────────────────────
+
+    public function testDoActionPassesMultipleArgsToCallback(): void
+    {
+        $received = [];
+        Hook::addAction('test.multiarg', function ($a, $b, $c) use (&$received) {
+            $received = [$a, $b, $c];
+        });
+
+        Hook::doAction('test.multiarg', 1, 'two', [3]);
+        $this->assertSame([1, 'two', [3]], $received);
+    }
+
+    // ─── Filter 优先级 ───────────────────────────────────
+
+    public function testFilterPriorityOrdering(): void
+    {
+        Hook::addFilter('test.forder', function (string $value) {
+            return $value . '-second';
+        }, 20);
+
+        Hook::addFilter('test.forder', function (string $value) {
+            return $value . '-first';
+        }, 5);
+
+        $result = Hook::applyFilters('test.forder', 'start');
+        // priority=5 先执行，然后 priority=20
+        $this->assertSame('start-first-second', $result);
+    }
+
+    // ─── Filter 去重 ───────────────────────────────────────
+
+    public function testFilterDeduplication(): void
+    {
+        $count = 0;
+        $filter = function ($value) use (&$count) {
+            $count++;
+            return $value;
+        };
+
+        Hook::addFilter('test.fd', $filter);
+        Hook::addFilter('test.fd', $filter); // 重复
+
+        Hook::applyFilters('test.fd', 'val');
+        $this->assertSame(1, $count);
+    }
+
+    // ─── loadFromConfig 幂等性 ─────────────────────────────
+
+    public function testLoadFromConfigDoesNotReRegister(): void
+    {
+        $count = 0;
+        $config = [
+            'actions' => [
+                'test.idempotent' => [function () use (&$count) { $count++; }],
+            ],
+        ];
+
+        Hook::loadFromConfig($config);
+
+        // 第二次 loadFromConfig 应被完全忽略（$initialized 标志）
+        Hook::loadFromConfig($config);
+
+        // 只触发一次 action
+        Hook::doAction('test.idempotent');
+        $this->assertSame(1, $count);
+    }
 }
