@@ -552,7 +552,7 @@ class App
             $response->send();
             return $response;
         } elseif (RUN_MODE === 'cli') {
-            fwrite(STDERR, $response->getContent() . PHP_EOL);
+            fwrite(STDERR, (string) $response->getBody() . PHP_EOL);
             return $response;
         } else {
             return $response;
