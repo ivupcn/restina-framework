@@ -307,7 +307,7 @@ class Http
             'message' => $e->getMessage(),
             'data' => null
         ];
-        $statusCode = $e->getCode();
+        $statusCode = is_int($e->getCode()) ? $e->getCode() : 500;
         return $this->app->response->withJson($data, $statusCode);
     }
 
